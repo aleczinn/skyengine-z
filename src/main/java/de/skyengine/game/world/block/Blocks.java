@@ -1,6 +1,6 @@
 package de.skyengine.game.world.block;
 
-import de.skyengine.core.SkyEngine;
+import de.skyengine.shared.EngineInfo;
 import de.skyengine.game.world.block.content.ContentSource;
 import de.skyengine.game.world.block.content.ContentSources;
 import de.skyengine.game.world.block.content.FileContentSource;
@@ -109,7 +109,7 @@ public final class Blocks {
 
         /* Engine-Inhaltsquelle registrieren; Mods/Packs können vorher weitere hinzufügen. */
         File gameDir = blockDirectory.getParentFile();
-        ContentSources.register(new FileContentSource(SkyEngine.GAME_PREFIX, gameDir));
+        ContentSources.register(new FileContentSource(EngineInfo.CONTENT_NAMESPACE, gameDir));
 
         /* Inhalte aus allen Quellen laden (Blöcke, dann Modelle + Blockstates vor dem Bake).
            Die variants/multipart-Render-Sektion steckt in derselben Block-Datei — deshalb wird

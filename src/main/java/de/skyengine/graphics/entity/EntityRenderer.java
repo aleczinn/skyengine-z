@@ -164,6 +164,29 @@ public final class EntityRenderer {
         this.shader.unbind();
     }
 
+    /** Draws client-side replicas which deliberately do not live in the authoritative chunk lists. */
+    public void renderEntities(Dimension world, Iterable<? extends Entity> entities,
+                               Camera camera, float partialTick) {
+        this.shader.bind();
+        this.shader.setUniformMatrix4f(this.locProjectionView, camera.getProjectionViewMatrix());
+        this.shader.setUniformf(this.locWhiteFlash, 0f);
+        this.shader.setUniformf(this.locLight, 1.0f);
+        this.shader.setUniformf(this.locAlphaCutoff, CUTOUT_ALPHA);
+        this.textures.bind(0);
+        BlockTextureAtlas.bindOptionalMaterials(this.shader);
+
+        Vector3d cam = camera.getPosition();
+        FrustumIntersection frustum = camera.getFrustum();
+        for (Entity entity : entities) {
+            int chunkX = (int) Math.floor(entity.x) >> ChunkSection.SHIFT;
+            int chunkZ = (int) Math.floor(entity.z) >> ChunkSection.SHIFT;
+            Chunk chunk = world.getChunkManager().getChunk(chunkX, chunkZ);
+            if (chunk == null || !chunk.status.isAtLeast(ChunkStatus.LIT)) continue;
+            this.drawEntity(world, entity, chunk, cam, frustum, partialTick);
+        }
+        this.shader.unbind();
+    }
+
     private void drawEntity(Dimension world, Entity e, Chunk chunk, Vector3d cam,
                             FrustumIntersection frustum, float partialTick) {
         if (e.isRemoved()) return;

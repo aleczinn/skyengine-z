@@ -1,0 +1,22 @@
+{
+  "name": "world",
+  "seed": -1077471942,
+  "created": 1788340986166,
+  "lastPlayed": 1788340986166,
+  "formatVersion": 4,
+  "dimensions": {
+    "voxelstories:overworld": {
+      "seed": -1077471942,
+      "generator": "voxelstories:alpha_v2",
+      "generatorVersion": 2,
+      "lootRandomStates": {
+        "blocks/dandelion": 23363732615112,
+        "blocks/orange_tulip": 258111287120743,
+        "blocks/short_grass": 188834193982582,
+        "blocks/poppy": 258111814541372
+      }
+    }
+  },
+  "lootRandomStates": {},
+  "tntExplosionDropDecay": false
+}

@@ -57,6 +57,13 @@ public class Camera {
         this.pitch = player.pitch;
     }
 
+    /** Sets an authoritative/network camera transform without requiring a legacy EntityPlayer. */
+    public void setTransform(double x, double y, double z, float yaw, float pitch) {
+        this.position.set(x, y, z);
+        this.yaw = yaw;
+        this.pitch = Math.clamp(pitch, -90F, 90F);
+    }
+
     /**
      * Recompute matrices. Call after follow() and after resize().
      */

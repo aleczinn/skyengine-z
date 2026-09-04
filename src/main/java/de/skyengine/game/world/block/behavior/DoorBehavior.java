@@ -1,7 +1,7 @@
 package de.skyengine.game.world.block.behavior;
 
 import de.skyengine.audio.BlockOpenSound;
-import de.skyengine.audio.SoundManager;
+import de.skyengine.game.world.effect.WorldSoundSink;
 import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
@@ -99,7 +99,7 @@ public final class DoorBehavior implements BlockBehavior {
      * bleibt es einfach still. Ein Sound für beide Hälften, an der auslösenden.
      */
     private static void playOpenSound(Dimension world, int x, int y, int z, BlockState state, boolean open) {
-        SoundManager sound = world.getSoundManager();
+        WorldSoundSink sound = world.getSoundManager();
         BlockOpenSound set = state.getBlock().getOpenSound();
         if (sound != null && set != null) {
             if (open) sound.playBlockOpen(set, x + 0.5, y + 0.5, z + 0.5);

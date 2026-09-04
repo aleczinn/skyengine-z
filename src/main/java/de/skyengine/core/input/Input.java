@@ -413,6 +413,15 @@ public class Input {
         return isMouseBind(code) ? this.isMousePressed(code - MOUSE_OFFSET) : this.isKeyPressed(code);
     }
 
+    /** Consumes one keybind press edge while preserving its held/down state. */
+    public boolean consumeBindPress(int code) {
+        if (!isMouseBind(code)) return this.consumeKeyPress(code);
+        int button = code - MOUSE_OFFSET;
+        if (!this.isMousePressed(button)) return false;
+        this.mouseStates[button] = InputState.DOWN;
+        return true;
+    }
+
     /** Gehalten für einen Bind — dispatcht auf Taste oder Maustaste. */
     public boolean isBindDown(int code) {
         return isMouseBind(code) ? this.isMouseDown(code - MOUSE_OFFSET) : this.isKeyDown(code);

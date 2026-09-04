@@ -1,11 +1,11 @@
 package de.skyengine.utils.logging;
 
-import de.skyengine.core.SkyEngine;
-
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.nio.file.Files;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayDeque;
@@ -14,6 +14,8 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 public class LogManager {
 
@@ -52,14 +54,14 @@ public class LogManager {
 
 		File latestFile = new File(DIRECTORY + "latest.log");
 		if (!latestFile.exists()) {
-			SkyEngine.get().getFiles().createFile(latestFile);
+			try { latestFile.createNewFile(); } catch (IOException e) { e.printStackTrace(); }
 		}
 
-		String latestDate = dateFormat.format(SkyEngine.get().getFiles().getLastModifiedTime(latestFile).toMillis());
+		String latestDate = dateFormat.format(latestFile.lastModified());
 
 		boolean foundLatestZip = false;
 		for (File f : Objects.requireNonNull(logDir.listFiles())) {
-			String fileDate = dateFormat.format(SkyEngine.get().getFiles().getLastModifiedTime(f).toMillis());
+			String fileDate = dateFormat.format(f.lastModified());
 
 			if (!f.getName().equalsIgnoreCase(latestFile.getName()) && fileDate.equalsIgnoreCase(latestDate)) {
 				foundLatestZip = true;
@@ -83,7 +85,9 @@ public class LogManager {
 				builder.append('\n');
 
 				if (log.getThrowable() != null) {
-					builder.append(SkyEngine.get().getFiles().getStackTrace(log.getThrowable()));
+					StringWriter trace = new StringWriter();
+					log.getThrowable().printStackTrace(new PrintWriter(trace));
+					builder.append(trace);
 					builder.append('\n');
 				}
 			}
@@ -93,7 +97,8 @@ public class LogManager {
 			File logZip = new File(DIRECTORY + logName + ".zip");
 			logZip.delete();
 		} else {
-			SkyEngine.get().getFiles().clearFileContent(latestFile);
+			try (FileWriter ignored = new FileWriter(latestFile, false)) {
+			} catch (IOException e) { e.printStackTrace(); }
 		}
 
 		try (PrintWriter writer = new PrintWriter(new FileWriter(latestFile, true))) {
@@ -102,7 +107,17 @@ public class LogManager {
 			e.printStackTrace();
 		}
 
-		SkyEngine.get().getFiles().zipFile(latestFile, DIRECTORY + logName);
+		zip(latestFile, new File(DIRECTORY + logName + ".zip"));
+	}
+
+	private static void zip(File source, File destination) {
+		try (ZipOutputStream output = new ZipOutputStream(new java.io.FileOutputStream(destination))) {
+			output.putNextEntry(new ZipEntry(source.getName()));
+			Files.copy(source.toPath(), output);
+			output.closeEntry();
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
 	}
 
 	/**

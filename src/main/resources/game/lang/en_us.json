@@ -72,6 +72,57 @@
     }
   },
 
+  "multiplayer": {
+    "title": "Play Multiplayer",
+    "join": "Join Server",
+    "direct": "Direct Connection",
+    "add": "Add Server",
+    "edit": "Edit",
+    "delete": "Delete",
+    "refresh": "Refresh",
+    "empty": "No servers saved",
+    "checking": "Checking...",
+    "online": "Online %d/%d  %d ms",
+    "offline": "Offline",
+    "incompatible": "Incompatible",
+    "direct_title": "Direct Connection",
+    "add_title": "Add Server",
+    "edit_title": "Edit Server",
+    "server_name": "Server Name",
+    "server_name_placeholder": "SkyEngine Server",
+    "address": "Server Address",
+    "invalid_address": "Invalid server address",
+    "delete_title": "Delete Server?",
+    "delete_message": "Delete '%s'?",
+    "connecting_title": "Connecting to Server",
+    "connection_failed": "Connection failed",
+    "disconnected": "Disconnected",
+    "remote_world_pending": "Connected. Waiting for renderable L0 chunks from the server ...",
+    "status": {
+      "idle": "Idle",
+      "connecting": "Connecting...",
+      "handshake": "Negotiating protocol...",
+      "login": "Logging in...",
+      "configuration": "Checking packs and registries...",
+      "joining": "Joining world...",
+      "play": "Connected",
+      "disconnected": "Disconnected",
+      "failed": "Connection failed"
+    },
+    "disconnect": {
+      "timeout": "Connection timed out",
+      "client_quit": "Connection closed",
+      "server_stop": "Server stopped",
+      "kicked": "Kicked by server",
+      "protocol_mismatch": "Incompatible protocol version",
+      "pack_mismatch": "Required packs do not match",
+      "invalid_packet": "Invalid network packet",
+      "login_failed": "Login failed",
+      "duplicate_login": "This player is already connected",
+      "internal_error": "Network error"
+    }
+  },
+
   "options": {
     "title": "Options",
     "fov": "FOV: %d",

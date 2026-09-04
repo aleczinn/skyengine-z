@@ -8,6 +8,7 @@ import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.entity.EntityRenderer;
 import de.skyengine.graphics.particle.ParticleRenderer;
 import de.skyengine.graphics.texture.BlockTextureAtlas;
+import de.skyengine.game.world.particle.ParticleEngine;
 
 /** GPU-seitige Ansicht genau einer aktiven Dimension; besitzt keinerlei Savegame-Zustand. */
 public final class DimensionView implements IDisposable {
@@ -33,7 +34,10 @@ public final class DimensionView implements IDisposable {
             this.chunks.setEnvironment(dimension.getEnvironment());
             this.chunks.init(atlas);
             this.entities.init(atlas.textures());
-            this.particles = new ParticleRenderer(dimension.particles(), atlas.textures());
+            if (!(dimension.particles() instanceof ParticleEngine particleEngine)) {
+                throw new IllegalStateException("Grafische Dimension benoetigt eine ParticleEngine");
+            }
+            this.particles = new ParticleRenderer(particleEngine, atlas.textures());
             this.particles.init();
             this.cableFlow = new EnergyCableFlowRenderer(dimension.getEnergyNetworks());
             this.cableFlow.init();

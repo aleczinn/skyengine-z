@@ -1,6 +1,5 @@
 package de.skyengine.game.world.chunk;
 
-import de.skyengine.core.settings.GameSettings;
 import de.skyengine.game.world.block.BlockRegistry;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.RenderLayer;
@@ -14,6 +13,14 @@ import de.skyengine.game.world.block.state.BlockState;
 import java.util.Arrays;
 
 public class ChunkMesher {
+
+    private static volatile boolean configuredAmbientOcclusion = true;
+    private static volatile boolean configuredCullLeaves;
+
+    public static void configure(boolean ambientOcclusion, boolean cullLeaves) {
+        configuredAmbientOcclusion = ambientOcclusion;
+        configuredCullLeaves = cullLeaves;
+    }
 
     /** Benchmark-/Testauswahl; der normale Spielpfad verwendet immer ROW_MASK. */
     public enum VisibilityPath {
@@ -429,8 +436,8 @@ public class ChunkMesher {
         this.west = west;
         this.east = east;
         this.diagonals = diagonals;
-        this.ambientOcclusion = GameSettings.get().ambientOcclusion;
-        this.cullLeaves = GameSettings.get().leavesQuality == GameSettings.LeavesQuality.LOW;
+        this.ambientOcclusion = configuredAmbientOcclusion;
+        this.cullLeaves = configuredCullLeaves;
         this.fullCubeStates = FullCubeMeshStateTable.current(
                 this.overlayPath == OverlayPath.LEGACY_REFERENCE);
 

@@ -1,10 +1,8 @@
 package de.skyengine.game.entity;
 
-import de.skyengine.core.input.Input;
-import de.skyengine.core.settings.GameSettings;
-import de.skyengine.core.settings.KeyBindings;
 import de.skyengine.game.Gamemode;
 import de.skyengine.game.physics.AABB;
+import de.skyengine.game.physics.ChunkMovementLimiter;
 import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.PlayerLocation;
 import de.skyengine.game.world.block.Identifier;
@@ -108,6 +106,7 @@ public class EntityPlayer extends Entity {
     /* Augenhöhe wird pro Tick Richtung Zielwert interpoliert (weiche Kamera beim Sneaken) */
     private float eyeHeight = EYE_HEIGHT_STANDING;
     private float lastEyeHeight = EYE_HEIGHT_STANDING;
+    private ChunkMovementLimiter.Availability movementAvailability = ChunkMovementLimiter.Availability.ALL;
 
     public EntityPlayer() {
         this(UUID.randomUUID());
@@ -146,12 +145,23 @@ public class EntityPlayer extends Entity {
     /**
      * Per-TICK movement (20 TPS). Deterministic - only reads the frozen input state.
      */
-    public void update(Input input, Dimension world) {
+    public void update(PlayerControls controls, Dimension world,
+                       ChunkMovementLimiter.Availability availability) {
+        ChunkMovementLimiter.Availability previous = this.movementAvailability;
+        this.movementAvailability = java.util.Objects.requireNonNull(availability, "availability");
+        try {
+            this.update(controls, world);
+        } finally {
+            this.movementAvailability = previous;
+        }
+    }
+
+    public void update(PlayerControls controls, Dimension world) {
         super.update();
         this.landingDistanceThisTick = 0;
 
         if (this.getVehicle() != null) {
-            if (input.isBindDown(GameSettings.get().key(KeyBindings.SNEAK))) {
+            if (controls.sneak()) {
                 this.stopRiding(world);
             } else {
                 if (this.getVehicle() instanceof MinecartEntity minecart) {
@@ -159,7 +169,7 @@ public class EntityPlayer extends Entity {
                     /* Vanilla schiebt ein nahezu stehendes Cart mit player.zza > 0 nur um 0,001
                        pro Tick in Blickrichtung an. Rückwärts- und Seitwärtstasten treiben es
                        nicht an. Der kleine additive Impuls erzeugt das langsame Anrollen. */
-                    double impulse = input.isBindDown(GameSettings.get().key(KeyBindings.FORWARD))
+                    double impulse = controls.forward() > 0
                             ? 0.001 : 0;
                     minecart.addPassengerImpulse(Math.sin(yawRad) * impulse,
                             -Math.cos(yawRad) * impulse);
@@ -170,29 +180,23 @@ public class EntityPlayer extends Entity {
 
         /* Tot: keine Steuerung mehr — die Physik läuft weiter (der Körper fällt aus), bis der
            Todesscreen Respawn oder Hauptmenü auslöst. */
-        if (this.isDead()) input = Input.EMPTY;
+        if (this.isDead()) controls = PlayerControls.NONE;
 
-        /* Bewegungs-Keys aus den umbelegbaren KeyBindings (Defaults: WASD/Space/Shift/Strg). */
-        GameSettings settings = GameSettings.get();
-        double forward = 0, strafe = 0;
-        if (input.isBindDown(settings.key(KeyBindings.FORWARD))) forward += 1;
-        if (input.isBindDown(settings.key(KeyBindings.BACK))) forward -= 1;
-        if (input.isBindDown(settings.key(KeyBindings.RIGHT))) strafe += 1;
-        if (input.isBindDown(settings.key(KeyBindings.LEFT))) strafe -= 1;
-
-        boolean up = input.isBindDown(settings.key(KeyBindings.JUMP));
-        boolean shift = input.isBindDown(settings.key(KeyBindings.SNEAK));
-        boolean sprintKey = input.isBindDown(settings.key(KeyBindings.SPRINT));
+        double forward = controls.forward();
+        double strafe = controls.strafe();
+        boolean up = controls.jump();
+        boolean shift = controls.sneak();
+        boolean sprintKey = controls.sprint();
 
         /* Halten- oder Umschalt-Modus (GameSettings): Toggle flippt auf der Druck-Flanke
            (pro Tick erkannt). Sneak-Flanken im Flug ignorieren — Shift ist dort "Sinken",
            sonst landet man unerwartet schleichend. */
-        if (settings.sneakToggle) {
+        if (controls.sneakToggle()) {
             if (shift && !this.lastSneakDown && !this.flying) this.sneakActive = !this.sneakActive;
         } else {
             this.sneakActive = shift;
         }
-        if (settings.sprintToggle) {
+        if (controls.sprintToggle()) {
             if (sprintKey && !this.lastSprintDown) this.sprintActive = !this.sprintActive;
         } else {
             this.sprintActive = sprintKey;
@@ -331,7 +335,7 @@ public class EntityPlayer extends Entity {
     private void travelSwimming(Dimension world, double forward, double strafe, boolean up, boolean lava, double depth) {
         this.moveRelative(strafe, forward, SWIM_ACCEL);
         double mx = this.motionX, mz = this.motionZ; // Bewegungsabsicht für den Kanten-Check
-        this.move(world, this.motionX, this.motionY, this.motionZ);
+        this.moveWithinAvailableChunks(world, this.motionX, this.motionY, this.motionZ);
 
         /* Heraussprung an der Kante (Vanilla): horizontal gegen ein Hindernis geschwommen und
            darüber (0.6 höher) ist Platz -> Aufwärts-Boost; wiederholt sich jeden Tick, solange
@@ -414,7 +418,7 @@ public class EntityPlayer extends Entity {
 
         /* Der Tempo-Faktor (Seelensand/Honig) steckt in Entity.move — dort, wo MC ihn auch
            anwendet, und damit für jede Entität statt nur für den Spieler. */
-        this.move(world, dx, dy, dz);
+        this.moveWithinAvailableChunks(world, dx, dy, dz);
 
         /* Gravitation & Reibung NACH dem Bewegen */
         this.motionY -= GRAVITY;
@@ -474,11 +478,22 @@ public class EntityPlayer extends Entity {
             this.motionY = -verticalSpeed;
         }
 
-        this.move(world, this.motionX, this.motionY, this.motionZ);
+        this.moveWithinAvailableChunks(world, this.motionX, this.motionY, this.motionZ);
 
         this.motionX *= FLY_DRAG;
         this.motionY *= FLY_DRAG_Y;
         this.motionZ *= FLY_DRAG;
+    }
+
+    private void moveWithinAvailableChunks(Dimension world, double dx, double dy, double dz) {
+        ChunkMovementLimiter.Movement limited = ChunkMovementLimiter.limit(
+                this.boundingBox, dx, dy, dz, this.movementAvailability);
+        boolean clippedX = limited.x() != dx;
+        boolean clippedZ = limited.z() != dz;
+        this.move(world, limited.x(), limited.y(), limited.z());
+        if (clippedX) this.motionX = 0;
+        if (clippedZ) this.motionZ = 0;
+        if (clippedX || clippedZ) this.horizontalCollision = true;
     }
 
     /**
@@ -639,6 +654,12 @@ public class EntityPlayer extends Entity {
         return this.spectatorFlySpeed;
     }
 
+    /** Applies the server-authoritative spectator speed while restoring/predicting a snapshot. */
+    public void restoreNetworkSpectatorFlySpeed(float speed) {
+        if (!Float.isFinite(speed)) throw new IllegalArgumentException("Non-finite spectator speed");
+        this.spectatorFlySpeed = Math.clamp(speed, SPECTATOR_SPEED_MIN, SPECTATOR_SPEED_MAX);
+    }
+
     /** Flugzustand direkt setzen (Savegame-Restore) — respektiert die Gamemode-Regeln. */
     public void setFlying(boolean flying) {
         if (this.gamemode.isAlwaysFly()) return;         // Spectator: Flug erzwungen
@@ -649,6 +670,25 @@ public class EntityPlayer extends Entity {
         } else {
             this.noClip = false;
         }
+    }
+
+    /**
+     * Restores the movement flags carried by an authoritative network snapshot.  This is used
+     * only to seed/replay client prediction; normal gameplay still changes the flags through
+     * input and {@link #setGamemode(Gamemode)}.
+     */
+    public void restoreNetworkMovementState(boolean flying, boolean noClip,
+                                            boolean sprinting, boolean sneaking) {
+        this.flying = this.gamemode.isAlwaysFly() || (flying && this.gamemode.canFly());
+        this.noClip = this.gamemode.isAlwaysFly() || (noClip && this.flying);
+        this.sprinting = sprinting;
+        this.sprintActive = sprinting;
+        this.sneaking = sneaking && !this.flying;
+        this.sneakActive = sneaking;
+        this.lastSprintDown = sprinting;
+        this.lastSneakDown = sneaking;
+        this.eyeHeight = this.sneaking ? EYE_HEIGHT_SNEAKING : EYE_HEIGHT_STANDING;
+        this.lastEyeHeight = this.eyeHeight;
     }
 
     public boolean isSprinting() {

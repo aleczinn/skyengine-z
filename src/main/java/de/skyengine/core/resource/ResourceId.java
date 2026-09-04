@@ -1,6 +1,6 @@
 package de.skyengine.core.resource;
 
-import de.skyengine.core.SkyEngine;
+import de.skyengine.shared.EngineInfo;
 
 import java.util.Locale;
 import java.util.Objects;
@@ -12,7 +12,7 @@ import java.util.Objects;
  */
 public record ResourceId(String namespace, String path) {
 
-    public static final String DEFAULT_NAMESPACE = SkyEngine.GAME_PREFIX;
+    public static final String DEFAULT_NAMESPACE = EngineInfo.CONTENT_NAMESPACE;
 
     public ResourceId {
         namespace = normalizeNamespace(namespace);

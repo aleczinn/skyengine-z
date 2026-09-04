@@ -158,7 +158,13 @@ public final class GuiCreativeInventory extends GuiContainer {
     private float guiX, guiY;
 
     public GuiCreativeInventory(ItemStorage playerInv, PlayerRenderer playerRenderer, HeldItemMeshes heldItemMeshes, Supplier<ItemStack> heldItem) {
-        super(playerInv);
+        this(playerInv, playerRenderer, heldItemMeshes, heldItem, null);
+    }
+
+    public GuiCreativeInventory(ItemStorage playerInv, PlayerRenderer playerRenderer,
+                                HeldItemMeshes heldItemMeshes, Supplier<ItemStack> heldItem,
+                                InventoryActionSink actionSink) {
+        super(actionSink, playerInv);
         this.playerInv = playerInv;
         this.playerRenderer = playerRenderer;
         this.heldItemMeshes = heldItemMeshes;
@@ -585,6 +591,11 @@ public final class GuiCreativeInventory extends GuiContainer {
         }
         boolean right = button == GLFW.GLFW_MOUSE_BUTTON_RIGHT;
         ItemStack stack = slot.get();
+        SkyEngine engine = SkyEngine.get();
+        boolean shift = engine != null && engine.getInput().isShiftDown();
+        this.sendInventoryAction(-2, -1,
+                de.skyengine.shared.gameplay.InventoryActionRequest.Action.CLONE,
+                shift ? 2 : right ? 1 : 0, stack);
         if (!this.carried.isEmpty()) {
             /* Rechts und links unterscheiden sich nur im Vorzeichen. */
             if (stack.isEmpty() || this.carried.getItem() != stack.getItem()) {
@@ -598,7 +609,7 @@ public final class GuiCreativeInventory extends GuiContainer {
         }
         if (stack.isEmpty()) return;
 
-        if (SkyEngine.get().getInput().isShiftDown()) {
+        if (shift) {
             /* Shift bleibt der Bulk-Weg: voller Stapel direkt ins Inventar, Rest verfällt
                (Nachschub gibt es unbegrenzt). Ohne Shift kommt genau EIN Item in die Hand. */
             this.playerInv.insert(new ItemStack(stack.getItem(), stack.getMaxStackSize()));

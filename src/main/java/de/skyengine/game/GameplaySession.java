@@ -15,6 +15,7 @@ import de.skyengine.game.world.save.WorldSaves;
 import de.skyengine.graphics.blockentity.BlockEntityRenderDispatcher;
 import de.skyengine.graphics.texture.BlockTextureAtlas;
 import de.skyengine.graphics.world.DimensionView;
+import de.skyengine.game.world.particle.ParticleEngine;
 
 /** Alle Objekte, die nur zwischen Weltbeitritt und Rueckkehr ins Hauptmenue existieren. */
 public final class GameplaySession implements IDisposable {
@@ -194,7 +195,8 @@ public final class GameplaySession implements IDisposable {
     }
 
     private DimensionView createView(Dimension dimension) {
-        return this.atlas == null ? null
-                : new DimensionView(dimension, this.atlas, this.blockEntityRenderers);
+        if (this.atlas == null) return null;
+        dimension.setParticleSink(new ParticleEngine(dimension));
+        return new DimensionView(dimension, this.atlas, this.blockEntityRenderers);
     }
 }

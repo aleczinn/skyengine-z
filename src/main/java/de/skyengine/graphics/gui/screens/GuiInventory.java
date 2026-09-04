@@ -31,16 +31,43 @@ public final class GuiInventory extends GuiContainer {
     private final Supplier<ItemStack> heldItem;   // ausgewählter Hotbar-Slot (fürs Modell in der Hand)
     private float guiX, guiY;
     private final CraftingMenu crafting;
+    private final ItemStorage craftingInput;
+    private final ItemStorage craftingOutput;
 
     public GuiInventory(ItemStorage playerInv, PlayerRenderer playerRenderer,
                         HeldItemMeshes heldItemMeshes, Supplier<ItemStack> heldItem) {
-        super(playerInv);
+        this(playerInv, playerRenderer, heldItemMeshes, heldItem, null);
+    }
+
+    public GuiInventory(ItemStorage playerInv, PlayerRenderer playerRenderer,
+                        HeldItemMeshes heldItemMeshes, Supplier<ItemStack> heldItem,
+                        InventoryActionSink actionSink) {
+        super(actionSink, playerInv);
         this.playerInv = playerInv;
         this.playerRenderer = playerRenderer;
         this.heldItemMeshes = heldItemMeshes;
         this.heldItem = heldItem;
         this.crafting = new CraftingMenu(2, 2, RecipeManager.CRAFTING, playerInv,
                 stack -> SkyEngine.get().getGame().dropFromGui(stack));
+        this.craftingInput = this.crafting.input();
+        this.craftingOutput = this.crafting.output();
+    }
+
+    public GuiInventory(ItemStorage craftingInput, ItemStorage craftingOutput, ItemStorage playerInv,
+                        PlayerRenderer playerRenderer, HeldItemMeshes heldItemMeshes,
+                        Supplier<ItemStack> heldItem, InventoryActionSink actionSink, Runnable closeSink) {
+        super(actionSink, slot -> switch (slot.group) {
+            case CRAFT_INPUT -> slot.index;
+            case CRAFT_RESULT -> craftingInput.size();
+            default -> craftingInput.size() + 1 + slot.index;
+        }, closeSink, playerInv, craftingInput);
+        this.playerInv = playerInv;
+        this.playerRenderer = playerRenderer;
+        this.heldItemMeshes = heldItemMeshes;
+        this.heldItem = heldItem;
+        this.crafting = null;
+        this.craftingInput = craftingInput;
+        this.craftingOutput = craftingOutput;
     }
 
     @Override
@@ -51,10 +78,10 @@ public final class GuiInventory extends GuiContainer {
 
         this.slots.clear();
         for (int r = 0; r < 2; r++) for (int c = 0; c < 2; c++) {
-            this.slots.add(new Slot(this.crafting.input(), r * 2 + c,
+            this.slots.add(new Slot(this.craftingInput, r * 2 + c,
                     gx + 98 + c * STEP, gy + 18 + r * STEP, SlotGroup.CRAFT_INPUT));
         }
-        this.slots.add(new Slot(this.crafting.output(), 0, gx + 154, gy + 28,
+        this.slots.add(new Slot(this.craftingOutput, 0, gx + 154, gy + 28,
                 SlotGroup.CRAFT_RESULT, stack -> false));
         /* Hauptinventar (Indizes 9..35). */
         for (int r = 0; r < 3; r++)
@@ -68,7 +95,7 @@ public final class GuiInventory extends GuiContainer {
 
     @Override
     protected int quickMove(Slot from, int amount) {
-        if (from.group == SlotGroup.CRAFT_RESULT) return this.crafting.craftAll();
+        if (from.group == SlotGroup.CRAFT_RESULT && this.crafting != null) return this.crafting.craftAll();
         return super.quickMove(from, amount);
     }
 
@@ -110,7 +137,7 @@ public final class GuiInventory extends GuiContainer {
 
     @Override
     public void onClose() {
-        this.crafting.close();
+        if (this.crafting != null) this.crafting.close();
         super.onClose();
     }
 }

@@ -7,6 +7,7 @@ import de.skyengine.core.resource.ResourceManager;
 import de.skyengine.core.resource.Resources;
 import de.skyengine.core.settings.GameSettings;
 import de.skyengine.game.entity.MinecartEntity;
+import de.skyengine.game.world.effect.WorldSoundSink;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
@@ -49,7 +50,7 @@ import java.util.Random;
  *   <li>Effekt-Sounds werden beim Init komplett vorgeladen (wenige MB); Musik wird gestreamt.</li>
  * </ul>
  */
-public final class SoundManager implements IDisposable, UnderwaterAudioSink {
+public final class SoundManager implements IDisposable, UnderwaterAudioSink, WorldSoundSink {
 
     /** Minecraft 26.2 {@code sounds.json}: volume=0.7 fuer entity.player.attack.weak. */
     static final float WEAK_ATTACK_VOLUME = 0.2F;

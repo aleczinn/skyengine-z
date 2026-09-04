@@ -930,6 +930,14 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
             }
         }
 
+        // Dieselbe bereits berechnete Biome-Spalte wird fuer den Netzwerksnapshot behalten.
+        // Dadurch muss der Snapshot-Worker nicht erneut 1024 teure biomeAt-Abfragen ausfuehren.
+        chunk.biomeIds = new int[size * size];
+        for (int z = 0; z < size; z++) {
+            for (int x = 0; x < size; x++) {
+                chunk.biomeIds[(z << ChunkSection.SHIFT) | x] = biomes[x * size + z].id;
+            }
+        }
         this.buildTintGrids(chunk, baseX, baseZ);
         this.trackGenerateTime(System.nanoTime() - start);
     }

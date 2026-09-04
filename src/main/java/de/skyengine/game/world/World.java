@@ -1,6 +1,6 @@
 package de.skyengine.game.world;
 
-import de.skyengine.audio.SoundManager;
+import de.skyengine.game.world.effect.WorldSoundSink;
 import de.skyengine.core.io.IDisposable;
 import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.chunk.WorldWorkerPool;
@@ -18,22 +18,50 @@ public final class World implements IDisposable {
     private final WorldSaves.WorldSave save;
     private final File root;
     private final WorldWorkerPool workers;
+    private final boolean ownsWorkers;
     private final PortalLinks portalLinks;
     private final PlayerManager players;
     private final DimensionManager dimensions;
     private final StructureTemplateManager structures;
     private final WorldEditService worldEdit;
 
-    public World(WorldSaves.WorldSave save, SoundManager soundManager) {
+    public World(WorldSaves.WorldSave save, WorldSoundSink soundManager) {
         this(save, WorldSaves.dir(save.dirName()), soundManager);
     }
 
-    public World(WorldSaves.WorldSave save, File root, SoundManager soundManager) {
+    public World(WorldSaves.WorldSave save, File root, WorldSoundSink soundManager) {
+        this(save, root, soundManager, true);
+    }
+
+    /** Dedicated servers use the same world without manufacturing a process-local player. */
+    public World(WorldSaves.WorldSave save, File root, WorldSoundSink soundManager,
+                 boolean createLocalPlayer) {
+        this(save, root, soundManager, createLocalPlayer,
+                Math.max(2, Runtime.getRuntime().availableProcessors() - 2));
+    }
+
+    /** Server worlds pass their configured worker budget instead of silently using the host default. */
+    public World(WorldSaves.WorldSave save, File root, WorldSoundSink soundManager,
+                 boolean createLocalPlayer, int workerThreads) {
+        this(save, root, soundManager, createLocalPlayer,
+                new WorldWorkerPool(Math.max(1, workerThreads)), true);
+    }
+
+    /** Integrated Server und Client duerfen denselben CPU-Pool verwenden. */
+    public World(WorldSaves.WorldSave save, File root, WorldSoundSink soundManager,
+                 boolean createLocalPlayer, WorldWorkerPool workers) {
+        this(save, root, soundManager, createLocalPlayer, workers, false);
+    }
+
+    private World(WorldSaves.WorldSave save, File root, WorldSoundSink soundManager,
+                  boolean createLocalPlayer, WorldWorkerPool workers, boolean ownsWorkers) {
         this.save = save;
         this.root = root;
-        this.workers = new WorldWorkerPool();
+        this.workers = java.util.Objects.requireNonNull(workers, "workers");
+        this.ownsWorkers = ownsWorkers;
         this.portalLinks = new PortalLinks(this.root);
-        this.players = new PlayerManager(save, this.root, () -> WorldSaves.saveInDirectory(save, this.root));
+        this.players = new PlayerManager(save, this.root,
+                () -> WorldSaves.saveInDirectory(save, this.root), createLocalPlayer);
         this.structures = new StructureTemplateManager();
         this.worldEdit = new WorldEditService(this.structures);
         this.dimensions = new DimensionManager(save.dirName(), save.level(), this.root, this.workers, this.portalLinks, soundManager, structureSnapshot());
@@ -133,7 +161,7 @@ public final class World implements IDisposable {
             this.dimensions.dispose();
             WorldSaves.saveInDirectory(this.save, this.root);
         } finally {
-            this.workers.dispose();
+            if (this.ownsWorkers) this.workers.dispose();
         }
     }
 }

@@ -25,11 +25,22 @@ public class ChunkManager {
 
     private final ConcurrentHashMap<Long, Chunk> chunks = new ConcurrentHashMap<>();
     private final WorldWorkerPool workerPool;
-    private final ThreadPoolExecutor workers;
     private final boolean ownsWorkerPool;
     private final int workerCount;
     private final WorldGenerator generator;
     private final ChunkDecorator decorator;
+    private final boolean replicatedWorld;
+    private int replicatedRenderAnchorX = Integer.MIN_VALUE;
+    private int replicatedRenderAnchorZ;
+    /* Stable presentation frontier for replicated worlds. Once a fully uploaded column has
+       become visible it stays visible until the authoritative server unloads it. Re-anchoring
+       must never collapse the complete old view just because one column at the new centre is
+       still in flight. Owner/render-thread only. */
+    private final java.util.HashSet<Long> replicatedPresentedChunks = new java.util.HashSet<>();
+    /* Diagnostic only: largest completely presented disk around the current anchor. Rendering
+       uses replicatedPresentedChunks and therefore does not shrink with this value. */
+    private int replicatedPresentationRadius = -1;
+    private volatile boolean replicatedPresentationDirty = true;
 
     /* Worker -> render thread: Ein Batch wird immer komplett im selben Frame angewendet */
     private final ConcurrentLinkedQueue<MeshBatch> uploadQueue = new ConcurrentLinkedQueue<>();
@@ -84,6 +95,7 @@ public class ChunkManager {
     /* Debug: friert Laden/Generieren/Unload ein (Remeshes von Spieler-Edits laufen weiter).
        volatile nur der Sichtbarkeit halber — gelesen wird auf dem Tick-/Render-Thread. */
     private volatile boolean loadingPaused = false;
+    private boolean suppressSingleAnchorUnload;
 
     /* Zählt Entfernungen aus der chunks-Map (Unload-Loop + clearAllChunks). Der ChunkRenderer
        räumt seine Section-Meshes nur in Frames auf, in denen sich dieser Wert geändert hat,
@@ -102,7 +114,7 @@ public class ChunkManager {
        Blickrichtungswechsel sortiert faktisch nichts mehr um. Mit Deckel bleibt die sortierte
        Offset-Liste in update() die echte Reihenfolge: hoch genug, dass die Worker über einen
        50-ms-Tick gesättigt bleiben, niedrig genug, dass ein 180°-Dreh binnen 1-2 Ticks greift. */
-    private static final int LOAD_QUEUE_LIMIT = 128;
+    private final int loadQueueLimit;
 
     /* Sichtfeld-Priorisierung, Stufe 1 = Sichtkegel. cos(75°) = FOV/2 plus ~30° Sicherheitsrand.
        Der Rand ist Absicht: die Pipeline ist NACHBAR-GEGATED (ein sichtbarer Chunk darf erst
@@ -117,16 +129,46 @@ public class ChunkManager {
 
     /* Job-Prioritäten für den Worker-Pool: Remeshes überholen den Initial-Load. */
     private static final int PRIO_PLAYER_REMESH = 0;
+    private static final int PRIO_WORLD_PIPELINE = 1;
     private static final int PRIO_SYSTEM_REMESH = 1;
-    private static final int PRIO_LOAD = 2;
-    private static final int PRIO_LIGHT = 3;
+    private static final int PRIO_REPLICATED_DECODE = 2;
+    private static final int PRIO_REPLICATED_INITIAL_MESH = 2;
+    private static final int PRIO_LOAD = PRIO_WORLD_PIPELINE;
+    private static final int PRIO_LIGHT = PRIO_WORLD_PIPELINE;
 
-    /* AUSSTEHENDE Lade-Jobs (wartend + laufend) — Basis für LOAD_QUEUE_LIMIT und den Latch. */
+    /* AUSSTEHENDE Lade-Jobs (wartend + laufend) — Basis für loadQueueLimit und den Latch. */
     private final AtomicInteger pendingLoadTasks = new AtomicInteger();
+    private final ConcurrentHashMap<Long, PendingLoad> pendingLoadHandles = new ConcurrentHashMap<>();
+
+    private final class PendingLoad {
+        final long key;
+        final Chunk chunk;
+        final ChunkStatus expectedStatus;
+        final ChunkStatus cancelledStatus;
+        final java.util.concurrent.atomic.AtomicBoolean completed = new java.util.concurrent.atomic.AtomicBoolean();
+        volatile WorldWorkerPool.TaskHandle handle;
+
+        PendingLoad(Chunk chunk, ChunkStatus expectedStatus, ChunkStatus cancelledStatus) {
+            this.key = Chunk.key(chunk.chunkX, chunk.chunkZ);
+            this.chunk = chunk;
+            this.expectedStatus = expectedStatus;
+            this.cancelledStatus = cancelledStatus;
+        }
+
+        void finish(boolean cancelled) {
+            if (!this.completed.compareAndSet(false, true)) return;
+            if (cancelled && this.chunk.status == this.expectedStatus) {
+                this.chunk.status = this.cancelledStatus;
+            }
+            pendingLoadHandles.remove(this.key, this);
+            pendingLoadTasks.decrementAndGet();
+        }
+    }
 
     /* Scheduler-Telemetrie für L0-Load und Remeshes. */
     private final AtomicInteger queuedForegroundTasks = new AtomicInteger();
     private final AtomicInteger activeForegroundTasks = new AtomicInteger();
+    private final AtomicInteger pendingReplicatedPreparations = new AtomicInteger();
 
     /* Lade-Jobs, die update() in DIESEM Tick eingereiht hat (nur Tick-Thread). */
     private int loadSubmitsThisTick;
@@ -160,6 +202,9 @@ public class ChunkManager {
     /* Zustand des letzten Score-Sorts: neu sortiert wird nur bei Chunk-Wechsel oder >20° Drehung */
     private int lastSortPcx = Integer.MIN_VALUE, lastSortPcz;
     private float lastSortYaw;
+    private long lastMultiDemandSignature = Long.MIN_VALUE;
+    private int multiPlayerScheduleCursor;
+    private int currentAnchorSubmitLimit = Integer.MAX_VALUE;
 
     private static final class Offset {
         final int dx, dz;
@@ -218,7 +263,7 @@ public class ChunkManager {
         this(generator, decorator, new WorldWorkerPool(), true, hasSkylight);
     }
 
-    ChunkManager(WorldGenerator generator, ChunkDecorator decorator, int threads, boolean hasSkylight) {
+    public ChunkManager(WorldGenerator generator, ChunkDecorator decorator, int threads, boolean hasSkylight) {
         this(generator, decorator, new WorldWorkerPool(threads), true, hasSkylight);
     }
 
@@ -231,17 +276,32 @@ public class ChunkManager {
                          WorldWorkerPool workerPool, boolean ownsWorkerPool, boolean hasSkylight) {
         this.generator = generator;
         this.decorator = decorator;
+        this.replicatedWorld = generator == null && decorator == null;
         this.lightEngines = ThreadLocal.withInitial(() -> new LightEngine(hasSkylight));
         this.workerPool = java.util.Objects.requireNonNull(workerPool, "workerPool");
-        this.workers = workerPool.executor();
         this.workerCount = workerPool.workerCount();
+        this.loadQueueLimit = Math.max(4, this.workerCount * 2);
         this.ownsWorkerPool = ownsWorkerPool;
     }
 
     private void submitTask(int prio, Runnable job) {
         /* execute statt submit: submit() würde in ein nicht-vergleichbares FutureTask wrappen */
-        this.workers.execute(PrioTask.foreground(this, prio,
-                this.workerPool.nextSequence(), job));
+        this.workerPool.execute(prio, job);
+    }
+
+    /** CPU-Vorbereitung eines replizierten Chunks; die Installation bleibt Owner-Thread-Arbeit. */
+    public void prepareReplicatedChunk(Runnable job) {
+        if (!this.replicatedWorld) throw new IllegalStateException("Keine replizierte Welt");
+        this.pendingReplicatedPreparations.incrementAndGet();
+        try {
+            this.submitTask(PRIO_REPLICATED_DECODE, () -> {
+                try { job.run(); }
+                finally { this.pendingReplicatedPreparations.decrementAndGet(); }
+            });
+        } catch (RuntimeException rejected) {
+            this.pendingReplicatedPreparations.decrementAndGet();
+            throw rejected;
+        }
     }
 
     private void submitForegroundTask(int prio, Runnable job) {
@@ -261,21 +321,62 @@ public class ChunkManager {
     }
 
     /**
-     * Lade-Job (Generierung/Dekoration/Erst-Mesh) mit Buchführung für {@link #LOAD_QUEUE_LIMIT}
+     * Lade-Job (Generierung/Dekoration/Erst-Mesh) mit Buchführung für {@link #loadQueueLimit}
      * und {@link #initialLoadComplete}. Dekrementiert wird am ENDE des Jobs — der Zähler steht
      * also für AUSSTEHENDE Arbeit (wartend + laufend), sonst könnte der Latch auslösen, während
      * Worker noch mitten in einem Chunk stecken.
      */
-    private void submitLoadTask(int priority, Runnable job) {
+    private void submitLoadTask(int priority, Chunk chunk, ChunkStatus expectedStatus,
+                                ChunkStatus cancelledStatus, Runnable job) {
+        PendingLoad pending = new PendingLoad(chunk, expectedStatus, cancelledStatus);
+        PendingLoad duplicate = this.pendingLoadHandles.putIfAbsent(pending.key, pending);
+        if (duplicate != null) {
+            /* A worker publishes the next status immediately before removing its handle. The
+               tick thread may observe that status in this tiny window; defer the next stage to
+               the following tick instead of manufacturing two jobs for one column. */
+            if (chunk.status == expectedStatus) chunk.status = cancelledStatus;
+            return;
+        }
         this.pendingLoadTasks.incrementAndGet();
         this.loadSubmitsThisTick++;
-        this.submitForegroundTask(priority, () -> {
-            try {
-                job.run();
-            } finally {
-                this.pendingLoadTasks.decrementAndGet();
-            }
-        });
+        PerformanceProfiler.AsyncToken queuedAt = PerformanceProfiler.get().beginAsync();
+        this.queuedForegroundTasks.incrementAndGet();
+        try {
+            pending.handle = this.workerPool.executeCancellable(priority, () -> {
+                this.queuedForegroundTasks.decrementAndGet();
+                this.activeForegroundTasks.incrementAndGet();
+                PerformanceProfiler.get().recordElapsed(
+                        PerformanceProfiler.WorkerSection.L0_QUEUE_WAIT, queuedAt);
+                try {
+                    job.run();
+                } finally {
+                    this.activeForegroundTasks.decrementAndGet();
+                    pending.finish(false);
+                }
+            }, () -> {
+                this.queuedForegroundTasks.decrementAndGet();
+                pending.finish(true);
+            });
+        } catch (RuntimeException rejected) {
+            this.queuedForegroundTasks.decrementAndGet();
+            pending.finish(true);
+            throw rejected;
+        }
+    }
+
+    private void cancelQueuedLoadsOutside(java.util.function.Predicate<Chunk> retained) {
+        for (PendingLoad pending : this.pendingLoadHandles.values()) {
+            if (retained.test(pending.chunk)) continue;
+            WorldWorkerPool.TaskHandle handle = pending.handle;
+            if (handle != null) handle.cancel();
+        }
+    }
+
+    private void cancelAllQueuedLoads() {
+        for (PendingLoad pending : this.pendingLoadHandles.values()) {
+            WorldWorkerPool.TaskHandle handle = pending.handle;
+            if (handle != null) handle.cancel();
+        }
     }
 
     /**
@@ -324,27 +425,8 @@ public class ChunkManager {
         return loadingPaused;
     }
 
-    /* PriorityBlockingQueue ist nicht stabil — seq hält gleiche Prioritäten in Einreihungs-
-       Reihenfolge, sonst würde die Blickrichtungs-Sortierung der Lade-Jobs verwürfelt. */
-    private record PrioTask(int prio, long seq, Runnable job)
-            implements Runnable, Comparable<PrioTask> {
-
-        static PrioTask foreground(ChunkManager owner, int priority, long sequence, Runnable job) {
-            return new PrioTask(priority, sequence, job);
-        }
-
-        @Override
-        public void run() {
-            this.job.run();
-        }
-
-        @Override
-        public int compareTo(PrioTask o) {
-            if (this.prio != o.prio) return Integer.compare(this.prio, o.prio);
-            return Long.compare(this.seq, o.seq);
-        }
-    }
-
+    /* Die zentrale WorldWorkerPool-Sequenz haelt gleiche Prioritaeten stabil in
+       Einreihungsreihenfolge; damit bleibt die Blickrichtungs-Sortierung erhalten. */
     /**
      * Liefert die Offsets innerhalb des Kreises. Wird nur neu gebaut, wenn sich die
      * renderDistance ändert; die Reihenfolge sortiert update() nach Score um.
@@ -384,6 +466,15 @@ public class ChunkManager {
         int pcx = (int) Math.floor(player.x) >> ChunkSection.SHIFT;
         int pcz = (int) Math.floor(player.z) >> ChunkSection.SHIFT;
 
+        if (!this.suppressSingleAnchorUnload) {
+            int retainDistance = this.renderDistance + 2;
+            int retainDistanceSquared = retainDistance * retainDistance;
+            this.cancelQueuedLoadsOutside(chunk -> {
+                int dx = chunk.chunkX - pcx, dz = chunk.chunkZ - pcz;
+                return dx * dx + dz * dz <= retainDistanceSquared;
+            });
+        }
+
         Offset[] order = this.getLoadOrder();
 
         /* Sichtfeld-Priorisierung in ZWEI STUFEN: Stufe 1 = Sichtkegel (inkl. Rand, s.
@@ -391,15 +482,29 @@ public class ChunkManager {
            entscheidet die Distanz. Der Bias (renderDistance + 1) ist größer als jede mögliche
            Stufe-1-Distanz -> kein Chunk hinter dem Spieler kann je einen sichtbaren überholen.
            Neu sortiert wird nur bei Chunk-Wechsel oder >20° Drehung (wrap-sicher). */
-        float yawDelta = Math.abs(((player.yaw - this.lastSortYaw + 540.0f) % 360.0f) - 180.0f);
-        if (pcx != this.lastSortPcx || pcz != this.lastSortPcz || yawDelta > 20.0f) {
+        float vx;
+        float vz;
+        double horizontalMotionSquared = player.motionX * player.motionX + player.motionZ * player.motionZ;
+        if (horizontalMotionSquared > 1.0E-5) {
+            double inverseLength = 1.0 / Math.sqrt(horizontalMotionSquared);
+            vx = (float) (player.motionX * inverseLength);
+            vz = (float) (player.motionZ * inverseLength);
+        } else {
+            double yawRad = Math.toRadians(player.yaw);
+            vx = (float) Math.sin(yawRad);
+            vz = (float) -Math.cos(yawRad);
+        }
+        float loadHeading = (float) Math.toDegrees(Math.atan2(vx, -vz));
+        float headingDelta = Math.abs(((loadHeading - this.lastSortYaw + 540.0f) % 360.0f) - 180.0f);
+        if (!this.suppressSingleAnchorUnload
+                && (pcx != this.lastSortPcx || pcz != this.lastSortPcz || headingDelta > 20.0f)) {
+            this.cancelAllQueuedLoads();
+        }
+        if (pcx != this.lastSortPcx || pcz != this.lastSortPcz || headingDelta > 20.0f) {
             this.lastSortPcx = pcx;
             this.lastSortPcz = pcz;
-            this.lastSortYaw = player.yaw;
+            this.lastSortYaw = loadHeading;
 
-            double yawRad = Math.toRadians(player.yaw);
-            float vx = (float) Math.sin(yawRad);
-            float vz = (float) -Math.cos(yawRad);
             float tier2Bias = this.renderDistance + 1;
             for (Offset o : order) {
                 /* dist == 0 (Spielerchunk) hat keine Richtung -> immer Stufe 1 */
@@ -418,7 +523,8 @@ public class ChunkManager {
             /* Queue-Deckel: nicht weiter einreihen, solange genug Lade-Arbeit aussteht. Bricht die
                Score-Reihenfolge NICHT — die Liste ist sortiert, der Rest kommt nächsten Tick
                (und wird nach einer Drehung vorher neu bewertet). */
-            if (this.pendingLoadTasks.get() >= LOAD_QUEUE_LIMIT) break;
+            if (this.pendingLoadTasks.get() >= this.loadQueueLimit
+                    || this.loadSubmitsThisTick >= this.currentAnchorSubmitLimit) break;
 
             int cx = pcx + offset.dx;
             int cz = pcz + offset.dz;
@@ -427,10 +533,7 @@ public class ChunkManager {
             Chunk chunk = this.chunks.get(key);
             if (chunk == null) {
                 chunk = new Chunk(cx, cz);
-                chunk.beginRenderGeneration(this.activeRenderGeneration);
-                chunk.remeshQueue = this.remeshQueue; // Dirty-Markierungen melden sich hier an
-                chunk.blockEntityAnnounceQueue = this.blockEntityAnnounceQueue;
-                chunk.tickRestoreQueue = this.tickRestoreQueue;
+                this.prepareManagedChunk(chunk);
                 this.chunks.put(key, chunk);
             }
 
@@ -438,7 +541,7 @@ public class ChunkManager {
                 generationSubmits++;
                 chunk.status = ChunkStatus.GENERATING;
                 Chunk finalChunk = chunk;
-                this.submitLoadTask(PRIO_LOAD, () -> {
+                this.submitLoadTask(PRIO_LOAD, finalChunk, ChunkStatus.GENERATING, ChunkStatus.NEW, () -> {
                     /* Persistenz zuerst: gespeicherte Chunks waren beim Save schon dekoriert
                        (nur READY-Chunks sind editierbar) -> DECORATED überspringt die
                        Doppel-Dekoration (gleiches Muster wie remeshAll). Befüllt wird vor dem
@@ -469,7 +572,8 @@ public class ChunkManager {
 
                 chunk.status = ChunkStatus.DECORATING;
                 Chunk finalChunk = chunk;
-                this.submitLoadTask(PRIO_LOAD, () -> {
+                this.submitLoadTask(PRIO_LOAD, finalChunk, ChunkStatus.DECORATING,
+                        ChunkStatus.GENERATED, () -> {
                     PerformanceProfiler profiler = PerformanceProfiler.get();
                     long started = profiler.begin();
                     this.decorator.decorate(finalChunk);
@@ -492,7 +596,8 @@ public class ChunkManager {
 
                 chunk.status = ChunkStatus.LIGHTING;
                 Chunk finalChunk = chunk;
-                this.submitLoadTask(PRIO_LIGHT, () -> {
+                this.submitLoadTask(PRIO_LIGHT, finalChunk, ChunkStatus.LIGHTING,
+                        ChunkStatus.DECORATED, () -> {
                     PerformanceProfiler profiler = PerformanceProfiler.get();
                     long started = profiler.begin();
                     LightEngine engine = this.lightEngines.get();
@@ -522,6 +627,13 @@ public class ChunkManager {
                der Mesher fürs Corner-Smoothing sampelt.
                Jede Section als eigener Batch, damit der Upload über Frames verteilt wird. */
             if (chunk.status == ChunkStatus.LIT) {
+                /* Dedicated server: lighting is the final CPU representation. Meshing and
+                   upload queues only exist once a renderer has explicitly attached. */
+                if (this.activeRenderGeneration == 0) {
+                    chunk.status = ChunkStatus.READY;
+                    this.readyAnnounceQueue.add(chunk);
+                    continue;
+                }
                 Chunk north = this.getAtLeast(cx, cz - 1, ChunkStatus.LIT);
                 Chunk south = this.getAtLeast(cx, cz + 1, ChunkStatus.LIT);
                 Chunk west = this.getAtLeast(cx - 1, cz, ChunkStatus.LIT);
@@ -533,7 +645,7 @@ public class ChunkManager {
                 Chunk finalChunk = chunk;
                 long meshSeq = this.nextMeshSeq++;
                 long renderGeneration = this.activeRenderGeneration;
-                this.submitLoadTask(PRIO_LIGHT, () -> {
+                this.submitLoadTask(PRIO_LIGHT, finalChunk, ChunkStatus.MESHING, ChunkStatus.LIT, () -> {
                     ChunkMesher mesher = this.meshers.get();
                     List<MeshResult> batch = new ArrayList<>(Chunk.SECTIONS);
                     lockRead(finalChunk, north, south, west, east, diagonals);
@@ -582,17 +694,24 @@ public class ChunkManager {
                     + " Erst-Mesh-Batches offen");
         }
 
+        if (this.suppressSingleAnchorUnload) return;
+
         /* 5. Unload chunks far outside the render distance.
            READY, LIT, DECORATED und GENERATED dürfen weg - nur laufende Jobs
            (GENERATING/DECORATING/LIGHTING/MESHING) bleiben, bis sie fertig sind,
            sonst arbeiten Worker auf entfernten Chunks. */
         int unloadDist = this.renderDistance + 2;
+        unloadOutside(chunk -> {
+            int dx = chunk.chunkX - pcx, dz = chunk.chunkZ - pcz;
+            return dx * dx + dz * dz <= unloadDist * unloadDist;
+        });
+    }
+
+    private void unloadOutside(java.util.function.Predicate<Chunk> retainedByInterest) {
         Iterator<Map.Entry<Long, Chunk>> it = this.chunks.entrySet().iterator();
         while (it.hasNext()) {
             Chunk chunk = it.next().getValue();
-            int dx = chunk.chunkX - pcx, dz = chunk.chunkZ - pcz;
-            int d2 = dx * dx + dz * dz;
-            if (d2 <= unloadDist * unloadDist) continue;
+            if (retainedByInterest.test(chunk)) continue;
 
             ChunkStatus status = chunk.status;
             if (status == ChunkStatus.READY || status == ChunkStatus.LIT
@@ -789,6 +908,286 @@ public class ChunkManager {
         return this.chunks.get(Chunk.key(chunkX, chunkZ));
     }
 
+    /**
+     * Dedicated-server interest update. Each player contributes its normal prioritized load
+     * radius. Loading uses the shared chunk map; unloading happens once against the union of
+     * spatially bucketed player interests, so no player can evict another player's chunks and
+     * the map still releases terrain after every player has left it.
+     */
+    public void updatePlayers(Iterable<EntityPlayer> players) {
+        java.util.List<EntityPlayer> anchors = new java.util.ArrayList<>();
+        for (EntityPlayer player : players) anchors.add(player);
+        if (anchors.isEmpty()) return;
+        long demandSignature = 1;
+        for (EntityPlayer player : anchors) {
+            int chunkX = (int) Math.floor(player.x) >> ChunkSection.SHIFT;
+            int chunkZ = (int) Math.floor(player.z) >> ChunkSection.SHIFT;
+            double heading = player.motionX * player.motionX + player.motionZ * player.motionZ > 1.0E-5
+                    ? Math.toDegrees(Math.atan2(player.motionX, -player.motionZ)) : player.yaw;
+            int headingBucket = Math.floorMod((int) Math.floor((heading + 10.0) / 20.0), 18);
+            demandSignature = 31 * demandSignature + Chunk.key(chunkX, chunkZ);
+            demandSignature = 31 * demandSignature + headingBucket;
+        }
+        if (demandSignature != this.lastMultiDemandSignature) {
+            this.lastMultiDemandSignature = demandSignature;
+            this.cancelAllQueuedLoads();
+        }
+        int retainDistance = this.renderDistance + 2;
+        long retainDistanceSquared = (long) retainDistance * retainDistance;
+        this.cancelQueuedLoadsOutside(chunk -> {
+            for (EntityPlayer player : anchors) {
+                int playerChunkX = (int) Math.floor(player.x) >> ChunkSection.SHIFT;
+                int playerChunkZ = (int) Math.floor(player.z) >> ChunkSection.SHIFT;
+                long dx = (long) chunk.chunkX - playerChunkX;
+                long dz = (long) chunk.chunkZ - playerChunkZ;
+                if (dx * dx + dz * dz <= retainDistanceSquared) return true;
+            }
+            return false;
+        });
+        int rotation = Math.floorMod(this.multiPlayerScheduleCursor++, anchors.size());
+        if (rotation != 0) java.util.Collections.rotate(anchors, -rotation);
+        this.suppressSingleAnchorUnload = true;
+        this.currentAnchorSubmitLimit = Math.max(1,
+                (this.loadQueueLimit + anchors.size() - 1) / anchors.size());
+        try {
+            for (EntityPlayer player : anchors) this.update(player);
+        } finally {
+            this.suppressSingleAnchorUnload = false;
+            this.currentAnchorSubmitLimit = Integer.MAX_VALUE;
+        }
+        int unloadDistance = this.renderDistance + 2;
+        int unloadDistanceSquared = unloadDistance * unloadDistance;
+        java.util.Map<Long, java.util.List<EntityPlayer>> anchorBuckets = new java.util.HashMap<>();
+        for (EntityPlayer player : anchors) {
+            int playerChunkX = (int) Math.floor(player.x) >> ChunkSection.SHIFT;
+            int playerChunkZ = (int) Math.floor(player.z) >> ChunkSection.SHIFT;
+            int bucketX = Math.floorDiv(playerChunkX, unloadDistance);
+            int bucketZ = Math.floorDiv(playerChunkZ, unloadDistance);
+            anchorBuckets.computeIfAbsent(Chunk.key(bucketX, bucketZ), ignored -> new java.util.ArrayList<>())
+                    .add(player);
+        }
+        unloadOutside(chunk -> {
+            int bucketX = Math.floorDiv(chunk.chunkX, unloadDistance);
+            int bucketZ = Math.floorDiv(chunk.chunkZ, unloadDistance);
+            for (int bucketOffsetZ = -1; bucketOffsetZ <= 1; bucketOffsetZ++) {
+                for (int bucketOffsetX = -1; bucketOffsetX <= 1; bucketOffsetX++) {
+                    java.util.List<EntityPlayer> nearby = anchorBuckets.get(Chunk.key(
+                            bucketX + bucketOffsetX, bucketZ + bucketOffsetZ));
+                    if (nearby == null) continue;
+                    for (EntityPlayer player : nearby) {
+                        int playerChunkX = (int) Math.floor(player.x) >> ChunkSection.SHIFT;
+                        int playerChunkZ = (int) Math.floor(player.z) >> ChunkSection.SHIFT;
+                        int dx = chunk.chunkX - playerChunkX, dz = chunk.chunkZ - playerChunkZ;
+                        if (dx * dx + dz * dz <= unloadDistanceSquared) return true;
+                    }
+                }
+            }
+            return false;
+        });
+    }
+
+    /**
+     * Installs an already generated and lit L0 chunk received from an authoritative server.
+     * The normal generator/update loop must not be used by replicated client worlds.
+     */
+    public void installReplicatedChunk(Chunk chunk) {
+        java.util.Objects.requireNonNull(chunk, "chunk");
+        if (!chunk.status.isAtLeast(ChunkStatus.LIT)) {
+            throw new IllegalArgumentException("Replicated chunk must contain final lighting");
+        }
+        this.prepareManagedChunk(chunk);
+        Chunk previous = this.chunks.put(Chunk.key(chunk.chunkX, chunk.chunkZ), chunk);
+        if (previous != null && previous != chunk) {
+            this.chunkRemovalVersion++;
+        }
+        if (previous != null && previous != chunk) {
+            this.markReplicatedNeighboursDirty(chunk.chunkX, chunk.chunkZ);
+        }
+        this.replicatedPresentationDirty = true;
+        this.scheduleReplicatedMeshesAround(chunk.chunkX, chunk.chunkZ);
+    }
+
+    /** Removes a server-replicated chunk and invalidates its GPU residency. */
+    public void removeReplicatedChunk(int chunkX, int chunkZ) {
+        long key = Chunk.key(chunkX, chunkZ);
+        Chunk removed = this.chunks.remove(key);
+        if (removed == null) return;
+        this.replicatedPresentedChunks.remove(key);
+        this.unloadAnnounceQueue.add(Chunk.key(chunkX, chunkZ));
+        this.chunkRemovalVersion++;
+        this.replicatedPresentationDirty = true;
+    }
+
+    private void prepareManagedChunk(Chunk chunk) {
+        chunk.beginRenderGeneration(this.activeRenderGeneration);
+        chunk.remeshQueue = this.remeshQueue;
+        chunk.blockEntityAnnounceQueue = this.blockEntityAnnounceQueue;
+        chunk.tickRestoreQueue = this.tickRestoreQueue;
+    }
+
+    public void setReplicatedRenderAnchor(int chunkX, int chunkZ) {
+        if (!this.replicatedWorld) return;
+        if (this.replicatedRenderAnchorX == chunkX && this.replicatedRenderAnchorZ == chunkZ) return;
+        this.replicatedRenderAnchorX = chunkX;
+        this.replicatedRenderAnchorZ = chunkZ;
+        this.replicatedPresentationDirty = true;
+        /* Installing the ninth member of any 3x3 halo is what makes its centre eligible;
+           nevertheless rescan the new near area as a defensive self-heal after anchor moves. */
+        this.scheduleReplicatedMeshesAround(chunkX, chunkZ);
+    }
+
+    private void scheduleReplicatedMeshesAround(int chunkX, int chunkZ) {
+        if (this.activeRenderGeneration == 0) return;
+        /* A newly installed column can complete the exact halo of precisely these nine
+           centres. Eligibility must not depend on an already-MESHING cardinal neighbour:
+           that old admission rule made valid islands permanently dormant for unlucky packet
+           completion orders. Status=LIT provides the per-column deduplication. */
+        for (int dz = -1; dz <= 1; dz++) {
+            for (int dx = -1; dx <= 1; dx++) {
+                this.tryScheduleReplicatedMesh(chunkX + dx, chunkZ + dz);
+            }
+        }
+    }
+
+    private boolean tryScheduleReplicatedMesh(int chunkX, int chunkZ) {
+        Chunk chunk = this.getAtLeast(chunkX, chunkZ, ChunkStatus.LIT);
+        if (chunk == null || chunk.status != ChunkStatus.LIT) return false;
+        Chunk north = this.getAtLeast(chunkX, chunkZ - 1, ChunkStatus.LIT);
+        Chunk south = this.getAtLeast(chunkX, chunkZ + 1, ChunkStatus.LIT);
+        Chunk west = this.getAtLeast(chunkX - 1, chunkZ, ChunkStatus.LIT);
+        Chunk east = this.getAtLeast(chunkX + 1, chunkZ, ChunkStatus.LIT);
+        Chunk[] diagonals = this.getDiagonalsAtLeast(chunkX, chunkZ, ChunkStatus.LIT);
+        if (north == null || south == null || west == null || east == null || diagonals == null) return false;
+        chunk.status = ChunkStatus.MESHING;
+        long meshSeq = this.nextMeshSeq++;
+        long renderGeneration = this.activeRenderGeneration;
+        this.submitForegroundTask(PRIO_REPLICATED_INITIAL_MESH, () -> {
+            ChunkMesher mesher = this.meshers.get();
+            List<MeshResult> batch = new ArrayList<>(Chunk.SECTIONS);
+            lockRead(chunk, north, south, west, east, diagonals);
+            try {
+                for (int sectionY = 0; sectionY < Chunk.SECTIONS; sectionY++) {
+                    long started = PerformanceProfiler.get().begin();
+                    batch.add(new MeshResult(chunk.chunkX, sectionY, chunk.chunkZ,
+                            mesher.mesh(chunk, sectionY, north, south, west, east, diagonals), meshSeq));
+                    PerformanceProfiler.get().recordElapsed(
+                            PerformanceProfiler.WorkerSection.L0_INITIAL_MESH, started);
+                }
+            } finally {
+                unlockRead(chunk, north, south, west, east, diagonals);
+            }
+            if (renderGeneration == this.activeRenderGeneration
+                    && this.chunks.get(Chunk.key(chunk.chunkX, chunk.chunkZ)) == chunk) {
+                this.uploadQueue.add(new MeshBatch(batch, renderGeneration));
+                chunk.status = ChunkStatus.READY;
+                this.readyAnnounceQueue.add(chunk);
+                this.replicatedPresentationDirty = true;
+            }
+        });
+        return true;
+    }
+
+    /** Renderer notification after one or more initial GPU batches were applied. */
+    public void replicatedUploadsApplied() {
+        if (this.replicatedWorld) this.replicatedPresentationDirty = true;
+    }
+
+    /**
+     * Advances a stable, connected presentation frontier. Fully uploaded chunks attach to an
+     * existing cardinal neighbour. The current anchor may bootstrap a new component after fast
+     * travel; READY already proves that its exact 3x3 CPU halo was present while meshing. Old
+     * components remain visible until their authoritative unload arrives.
+     */
+    public void refreshReplicatedPresentation() {
+        if (!this.replicatedWorld || !this.replicatedPresentationDirty) return;
+        this.replicatedPresentationDirty = false;
+        if (this.replicatedRenderAnchorX == Integer.MIN_VALUE) {
+            this.replicatedPresentationRadius = -1;
+            return;
+        }
+
+        this.replicatedPresentedChunks.removeIf(key -> {
+            Chunk chunk = this.chunks.get(key);
+            return chunk == null || chunk.status != ChunkStatus.READY || !chunk.isFullyUploaded();
+        });
+
+        Chunk anchor = this.getChunk(this.replicatedRenderAnchorX, this.replicatedRenderAnchorZ);
+        if (isPresentationReady(anchor)) {
+            this.replicatedPresentedChunks.add(Chunk.key(anchor.chunkX, anchor.chunkZ));
+        }
+
+        boolean advanced;
+        do {
+            advanced = false;
+            for (Chunk chunk : this.chunks.values()) {
+                long key = Chunk.key(chunk.chunkX, chunk.chunkZ);
+                if (this.replicatedPresentedChunks.contains(key) || !isPresentationReady(chunk)) continue;
+                long dx = (long) chunk.chunkX - this.replicatedRenderAnchorX;
+                long dz = (long) chunk.chunkZ - this.replicatedRenderAnchorZ;
+                if (dx * dx + dz * dz > (long) this.renderDistance * this.renderDistance) continue;
+                if (this.replicatedPresentedChunks.contains(Chunk.key(chunk.chunkX - 1, chunk.chunkZ))
+                        || this.replicatedPresentedChunks.contains(Chunk.key(chunk.chunkX + 1, chunk.chunkZ))
+                        || this.replicatedPresentedChunks.contains(Chunk.key(chunk.chunkX, chunk.chunkZ - 1))
+                        || this.replicatedPresentedChunks.contains(Chunk.key(chunk.chunkX, chunk.chunkZ + 1))) {
+                    this.replicatedPresentedChunks.add(key);
+                    advanced = true;
+                }
+            }
+        } while (advanced);
+
+        int minimumMissingDistanceSquared = Integer.MAX_VALUE;
+        int limitSquared = this.renderDistance * this.renderDistance;
+        for (int dz = -this.renderDistance; dz <= this.renderDistance; dz++) {
+            for (int dx = -this.renderDistance; dx <= this.renderDistance; dx++) {
+                int distanceSquared = dx * dx + dz * dz;
+                if (distanceSquared > limitSquared || distanceSquared >= minimumMissingDistanceSquared) continue;
+                if (!this.replicatedPresentedChunks.contains(Chunk.key(
+                        this.replicatedRenderAnchorX + dx, this.replicatedRenderAnchorZ + dz))) {
+                    minimumMissingDistanceSquared = distanceSquared;
+                }
+            }
+        }
+        int radius = this.renderDistance;
+        while (radius >= 0 && (long) radius * radius >= minimumMissingDistanceSquared) radius--;
+        this.replicatedPresentationRadius = radius;
+    }
+
+    private static boolean isPresentationReady(Chunk chunk) {
+        return chunk != null && chunk.status == ChunkStatus.READY && chunk.isFullyUploaded();
+    }
+
+    /** true if a resident mesh has reached the stable presentation frontier. */
+    public boolean isChunkPresented(int chunkX, int chunkZ) {
+        if (!this.replicatedWorld) return true;
+        return this.replicatedPresentedChunks.contains(Chunk.key(chunkX, chunkZ));
+    }
+
+    public int replicatedPresentationRadius() {
+        return this.replicatedPresentationRadius;
+    }
+
+    /** Rare watchdog self-heal; never called from the steady-state frame hot path. */
+    public void rescanReplicatedMeshCandidates() {
+        if (!this.replicatedWorld || this.activeRenderGeneration == 0) return;
+        for (Chunk chunk : this.chunks.values()) {
+            if (chunk.status == ChunkStatus.LIT) {
+                this.tryScheduleReplicatedMesh(chunk.chunkX, chunk.chunkZ);
+            }
+        }
+    }
+
+    private void markReplicatedNeighboursDirty(int chunkX, int chunkZ) {
+        for (int dz = -1; dz <= 1; dz++) {
+            for (int dx = -1; dx <= 1; dx++) {
+                if (dx == 0 && dz == 0) continue;
+                Chunk neighbour = this.getChunk(chunkX + dx, chunkZ + dz);
+                if (neighbour != null && neighbour.status == ChunkStatus.READY) {
+                    neighbour.markSectionsDirty((1 << Chunk.SECTIONS) - 1);
+                }
+            }
+        }
+    }
+
     /** Alle aktuell geladenen Chunks (z.B. fürs BlockEntity-Ticking). */
     /**
      * Chunks mit mindestens einem BlockEntity (nur Render-/Tick-Thread): übernimmt zuerst die
@@ -872,6 +1271,7 @@ public class ChunkManager {
         /* Unveränderter Wert darf die Startdiagnose nicht neu beginnen. */
         if (clamped == this.renderDistance) return;
         this.renderDistance = clamped;
+        this.replicatedPresentationDirty = true;
         /* loadOrder wird beim nächsten update() automatisch neu berechnet */
         this.resetLoadDiagnostics();
     }
@@ -886,6 +1286,9 @@ public class ChunkManager {
         }
         long generation = this.nextRenderGeneration++;
         this.activeRenderGeneration = generation;
+        this.replicatedPresentationDirty = true;
+        this.replicatedPresentationRadius = -1;
+        this.replicatedPresentedChunks.clear();
         this.clearRenderQueues();
         for (Chunk chunk : this.chunks.values()) {
             chunk.beginRenderGeneration(generation);
@@ -902,6 +1305,9 @@ public class ChunkManager {
     public void detachRenderer(long generation) {
         if (generation == 0 || generation != this.activeRenderGeneration) return;
         this.activeRenderGeneration = 0;
+        this.replicatedPresentationDirty = true;
+        this.replicatedPresentationRadius = -1;
+        this.replicatedPresentedChunks.clear();
         this.clearRenderQueues();
         for (Chunk chunk : this.chunks.values()) {
             chunk.endRenderGeneration(generation);
@@ -962,11 +1368,13 @@ public class ChunkManager {
     /** Render-Thread-Barriere vor dem Abbau einer aktiven DimensionView. */
     public void awaitWorkerTasks() {
         long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
-        while (this.queuedForegroundTasks.get() + this.activeForegroundTasks.get() > 0
+        while (this.queuedForegroundTasks.get() + this.activeForegroundTasks.get()
+                + this.pendingReplicatedPreparations.get() > 0
                 && System.nanoTime() < deadline) {
             java.util.concurrent.locks.LockSupport.parkNanos(1_000_000L);
         }
-        if (this.queuedForegroundTasks.get() + this.activeForegroundTasks.get() > 0) {
+        if (this.queuedForegroundTasks.get() + this.activeForegroundTasks.get()
+                + this.pendingReplicatedPreparations.get() > 0) {
             this.logger.warning("Dimensions-Worker waren nach 10 s noch aktiv");
         }
     }

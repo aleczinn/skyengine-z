@@ -21,12 +21,37 @@ public final class GuiFurnace extends GuiContainer {
     private final FurnaceBlockEntity furnace;
     private final ItemStorage furnaceInv;
     private final ItemStorage playerInv;
+    private int remoteBurnTime, remoteBurnDuration, remoteCookProgress, remoteCookDuration = 1;
     private float guiX, guiY;
 
     public GuiFurnace(FurnaceBlockEntity furnace, ItemStorage playerInv) {
         super(playerInv, furnace.getInventory());
         this.furnace = furnace;
         this.furnaceInv = furnace.getInventory();
+        this.playerInv = playerInv;
+    }
+
+    public void acceptRemoteData(int[] values) {
+        if (this.furnace != null || values == null || values.length < 4) return;
+        this.remoteBurnTime = Math.max(0, values[0]);
+        this.remoteBurnDuration = Math.max(0, values[1]);
+        this.remoteCookProgress = Math.max(0, values[2]);
+        this.remoteCookDuration = Math.max(1, values[3]);
+    }
+
+    private int burnTime() { return this.furnace == null ? this.remoteBurnTime : this.furnace.getBurnTime(); }
+    private int burnDuration() { return this.furnace == null ? this.remoteBurnDuration : this.furnace.getBurnDuration(); }
+    private int cookProgress() { return this.furnace == null ? this.remoteCookProgress : this.furnace.getCookProgress(); }
+    private int cookDuration() { return this.furnace == null ? this.remoteCookDuration : this.furnace.getCookDuration(); }
+
+    public GuiFurnace(ItemStorage furnaceInv, ItemStorage playerInv,
+                      InventoryActionSink actionSink, Runnable closeSink) {
+        super(actionSink, slot -> switch (slot.group) {
+            case MACHINE_INPUT, MACHINE_FUEL, MACHINE_OUTPUT -> slot.index;
+            default -> furnaceInv.size() + slot.index;
+        }, closeSink, playerInv, furnaceInv);
+        this.furnace = null;
+        this.furnaceInv = furnaceInv;
         this.playerInv = playerInv;
     }
 
@@ -80,14 +105,14 @@ public final class GuiFurnace extends GuiContainer {
         sprites.begin(gui.vWidth(), gui.vHeight());
         this.renderBackground(gui);
         sprites.drawSprite(texture, this.guiX, this.guiY, W, H, 0, 0, W / TEX, H / TEX);
-        if (this.furnace.getBurnTime() > 0) {
-            int flame = Math.max(1, 14 * this.furnace.getBurnTime() / Math.max(1, this.furnace.getBurnDuration()));
+        if (this.burnTime() > 0) {
+            int flame = Math.max(1, 14 * this.burnTime() / Math.max(1, this.burnDuration()));
             int hidden = 14 - flame;
             sprites.drawSprite(gui.textures().furnaceLitProgress, this.guiX + 56, this.guiY + 36 + hidden,
                     14, flame, 0, hidden / 14F, 1, 1);
         }
-        if (this.furnace.getCookProgress() > 0) {
-            int arrow = Math.min(24, 24 * this.furnace.getCookProgress() / Math.max(1, this.furnace.getCookDuration()));
+        if (this.cookProgress() > 0) {
+            int arrow = Math.min(24, 24 * this.cookProgress() / Math.max(1, this.cookDuration()));
             sprites.drawSprite(gui.textures().furnaceBurnProgress, this.guiX + 79, this.guiY + 34,
                     arrow, 16, 0, 0, arrow / 24F, 1);
         }

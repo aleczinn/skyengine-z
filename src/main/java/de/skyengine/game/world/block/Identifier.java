@@ -1,13 +1,13 @@
 package de.skyengine.game.world.block;
 
-import de.skyengine.core.SkyEngine;
+import de.skyengine.shared.EngineInfo;
 
 import java.util.Locale;
 
 public record Identifier(String namespace, String path) {
 
     /** Default fuer Spielinhalte; bewusst getrennt von ResourceId.DEFAULT_NAMESPACE. */
-    public static final String DEFAULT_NAMESPACE = SkyEngine.GAME_PREFIX;
+    public static final String DEFAULT_NAMESPACE = EngineInfo.CONTENT_NAMESPACE;
 
     public Identifier {
         if (namespace == null || namespace.isBlank()) namespace = DEFAULT_NAMESPACE;

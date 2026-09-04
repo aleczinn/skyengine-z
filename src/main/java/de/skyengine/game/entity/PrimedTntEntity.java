@@ -36,6 +36,19 @@ public class PrimedTntEntity extends Entity {
         this.setSize(0.98F, 0.98F);
     }
 
+    public float getPower() {
+        return this.power;
+    }
+
+    public int getFuse() {
+        return this.fuse;
+    }
+
+    /** Server snapshots drive the client-side fuse animation; replicas never simulate explosions. */
+    public void setFuse(int fuse) {
+        this.fuse = Math.max(0, fuse);
+    }
+
     @Override
     public void tick(Dimension world) {
         super.update();

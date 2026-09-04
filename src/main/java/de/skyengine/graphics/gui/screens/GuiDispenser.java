@@ -23,6 +23,14 @@ public final class GuiDispenser extends GuiContainer {
         this.playerInv = playerInv;
     }
 
+    public GuiDispenser(ItemStorage containerInv, ItemStorage playerInv,
+                        InventoryActionSink actionSink, Runnable closeSink) {
+        super(actionSink, slot -> slot.group == SlotGroup.CONTAINER
+                ? slot.index : containerInv.size() + slot.index, closeSink, playerInv, containerInv);
+        this.containerInv = containerInv;
+        this.playerInv = playerInv;
+    }
+
     @Override
     protected boolean isInsideWindow(double mx, double my) {
         return mx >= this.guiX && mx < this.guiX + W && my >= this.guiY && my < this.guiY + H;

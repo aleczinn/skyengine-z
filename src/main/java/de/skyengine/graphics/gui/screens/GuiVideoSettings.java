@@ -4,6 +4,7 @@ import de.skyengine.core.SkyEngine;
 import de.skyengine.core.i18n.I18n;
 import de.skyengine.core.settings.GameSettings;
 import de.skyengine.game.GameContainer;
+import de.skyengine.game.world.chunk.ChunkMesher;
 import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.gui.GuiScreen;
 import de.skyengine.graphics.gui.layout.HStack;
@@ -116,6 +117,8 @@ public final class GuiVideoSettings extends GuiOptionsScreen {
 
     /** AO/Laub stecken im gebackenen Mesh -> Voll-Remesh (nur mit Welt möglich). */
     private void remesh(GameContainer game) {
+        ChunkMesher.configure(this.settings.ambientOcclusion,
+                this.settings.leavesQuality == GameSettings.LeavesQuality.LOW);
         if (game.getDimension() != null) {
             game.getDimension().getChunkManager().remeshAll();
         }

@@ -4,7 +4,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import de.skyengine.core.file.Files;
-import de.skyengine.core.SkyEngine;
+import de.skyengine.shared.EngineInfo;
 import de.skyengine.core.resource.ResourceId;
 import de.skyengine.core.resource.ResourceManager;
 import de.skyengine.core.resource.Resources;
@@ -120,7 +120,7 @@ public final class I18n {
     /** Flacht die verschachtelte Struktur zu Punkt-Keys ab ({@code gui.done} usw.). */
     private static void flatten(String prefix, JsonObject obj, Map<String, String> out) {
         for (Map.Entry<String, JsonElement> entry : obj.entrySet()) {
-            String segment = entry.getKey().replace("${game}", SkyEngine.GAME_PREFIX);
+            String segment = entry.getKey().replace("${game}", EngineInfo.CONTENT_NAMESPACE);
             String key = prefix.isEmpty() ? segment : prefix + "." + segment;
             if (entry.getValue().isJsonObject()) {
                 flatten(key, entry.getValue().getAsJsonObject(), out);

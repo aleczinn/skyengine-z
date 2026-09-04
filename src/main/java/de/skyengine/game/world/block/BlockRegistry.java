@@ -93,6 +93,11 @@ public final class BlockRegistry {
         return statesById.length;
     }
 
+    /** Allows client and headless server bootstraps to share one idempotent content bootstrap. */
+    public static boolean isBaked() {
+        return baked;
+    }
+
     /** true, wenn mindestens ein Block am Random-Tick teilnimmt - sonst kann der Pass entfallen. */
     public static boolean hasRandomTickBlocks() {
         return hasRandomTick;

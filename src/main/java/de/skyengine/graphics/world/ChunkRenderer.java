@@ -400,6 +400,8 @@ public class ChunkRenderer {
             this.applyProfiledBatch(batch);
             uploads++;
         }
+        if (priorityUploads + uploads > 0) this.chunkManager.replicatedUploadsApplied();
+        this.chunkManager.refreshReplicatedPresentation();
         this.trackInitialUpload(uploads);
 
         /* 3. Meshes entladener Chunks freigeben (Regionen deferred) — nur in Frames, in denen
@@ -443,6 +445,7 @@ public class ChunkRenderer {
         for (int ci = 0, cn = this.cullColumns.tableSize(); ci < cn; ci++) {
             CullColumn col = this.cullColumns.valueAt(ci);
             if (col == null) continue;
+            if (!this.chunkManager.isChunkPresented(col.chunkX, col.chunkZ)) continue;
 
             /* Spalten-AABB zuerst: nur bei Schnitt die einzelnen Sections testen. */
             float ox = (float) (((long) col.chunkX << ChunkSection.SHIFT) - cam.x);
