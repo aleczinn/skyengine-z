@@ -68,7 +68,9 @@ public record ServerConfig(
     /** Laufzeitkonfiguration fuer einen im Clientprozess gehosteten Server. */
     public static ServerConfig integrated(Path worldDirectory, int viewDistance, int simulationDistance) {
         Path directory = worldDirectory.toAbsolutePath().normalize();
-        int workers = Math.max(2, Runtime.getRuntime().availableProcessors() - 2);
+        // Ein gemeinsamer Pool versorgt Worldgen, Snapshot-Aufbau und Client-Meshing. Vier
+        // logische CPUs bleiben fuer Render-, Tick-, Netzwerk-, Audio- und Betriebssystemthreads.
+        int workers = Math.max(2, Runtime.getRuntime().availableProcessors() - 4);
         return new ServerConfig(directory.getParent(), "127.0.0.1", 25565, 1,
                 viewDistance, Math.min(simulationDistance, viewDistance), directory.getFileName().toString(),
                 "Integrierter SkyEngine-Server", EngineInfo.TICKS_PER_SECOND, 5, 30,
@@ -131,7 +133,11 @@ public record ServerConfig(
         p.setProperty("chunk-bytes-per-second", Integer.toString(4 * 1024 * 1024));
         p.setProperty("autosave-interval-ticks", "1200");
         p.setProperty("authentication", "offline");
-        p.setProperty("worker-threads", Integer.toString(Math.max(2, Runtime.getRuntime().availableProcessors() - 2)));
+        /* A dedicated server commonly shares the same development workstation with one
+           rendering client. Reserve roughly three eighths of the logical CPUs for that client,
+           Netty and packet encoding. Production hosts can raise this explicit setting. */
+        p.setProperty("worker-threads", Integer.toString(Math.max(2,
+                Runtime.getRuntime().availableProcessors() * 5 / 8)));
         return p;
     }
 

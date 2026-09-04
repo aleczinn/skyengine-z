@@ -96,19 +96,38 @@ public final class ClientNetworkSession {
     /** Called from the client update thread. Returns the number of processed packets. */
     public int update() {
         int processed = 0;
+        try {
+            acknowledgePreparedChunkBatches();
+        } catch (ProtocolException failure) {
+            rejectServerPacket(failure);
+            flush();
+            return processed;
+        }
         PacketEnvelope envelope;
         while ((envelope = this.connection.pollInbound()) != null) {
             processed++;
             try { handle(envelope.packet()); }
             catch (ProtocolException | RuntimeException e) {
-                this.connection.disconnect(DisconnectReason.INVALID_PACKET,
-                        e.getMessage() == null ? "Invalid server packet" : e.getMessage());
-                this.listener.disconnected(DisconnectReason.INVALID_PACKET, e.getMessage());
+                rejectServerPacket(e);
                 break;
             }
         }
+        try { acknowledgePreparedChunkBatches(); }
+        catch (ProtocolException failure) { rejectServerPacket(failure); }
         flush();
         return processed;
+    }
+
+    private void acknowledgePreparedChunkBatches() throws ProtocolException {
+        for (ReplicatedChunkCache.AppliedBatch batch : this.chunks.drainCompletedBatchIds()) {
+            sendPlay(new CorePackets.ChunkBatchApplied(batch.batchId(), batch.leaseId()));
+        }
+    }
+
+    private void rejectServerPacket(Exception failure) {
+        String message = failure.getMessage() == null ? "Invalid server packet" : failure.getMessage();
+        this.connection.disconnect(DisconnectReason.INVALID_PACKET, message);
+        this.listener.disconnected(DisconnectReason.INVALID_PACKET, failure.getMessage());
     }
 
     public ConnectionState state() { return this.connection.state(); }
@@ -269,9 +288,6 @@ public final class ClientNetworkSession {
                 || packet instanceof CorePackets.MultiBlockUpdate
                 || packet instanceof CorePackets.BlockEntityUpdate) {
             this.chunks.accept(packet);
-            if (packet instanceof CorePackets.ChunkBatchEnd end) {
-                sendPlay(new CorePackets.ChunkBatchApplied(end.batchId()));
-            }
         }
         else throw unexpected(packet);
     }

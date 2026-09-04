@@ -158,8 +158,9 @@ class ClientNetworkSessionTest {
             client.update();
         }
         assertEquals(ConnectionState.PLAY, client.state());
-        assertEquals(13, chunks.size());
-        assertTrue(chunks.lastCompletedBatch() >= 13);
+        /* Visible radius 2 plus its exact one-column Chebyshev meshing halo. */
+        assertEquals(37, chunks.size());
+        assertTrue(chunks.lastCompletedBatch() >= 37);
         server.close();
     }
 
@@ -179,14 +180,14 @@ class ClientNetworkSessionTest {
                 client.start("TcpChunkPlayer", null);
                 long deadline = System.nanoTime() + 5_000_000_000L;
                 long tick = 0;
-                while (chunks.size() < 13 && System.nanoTime() < deadline) {
+                while (chunks.size() < 37 && System.nanoTime() < deadline) {
                     server.tick(tick++, System.nanoTime());
                     client.update();
                     Thread.sleep(1);
                 }
                 assertEquals(ConnectionState.PLAY, client.state());
-                assertEquals(13, chunks.size());
-                assertTrue(server.networkSnapshot().chunkBatchesEncoded() >= 13);
+                assertEquals(37, chunks.size());
+                assertTrue(server.networkSnapshot().chunkBatchesEncoded() >= 37);
             }
         } finally { server.close(); }
     }

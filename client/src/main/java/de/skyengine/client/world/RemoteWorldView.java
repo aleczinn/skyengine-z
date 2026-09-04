@@ -16,6 +16,7 @@ import de.skyengine.game.world.block.entity.ChestBlockEntity;
 import de.skyengine.game.world.block.entity.EnchantingTableBlockEntity;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkSection;
+import de.skyengine.game.world.chunk.WorldWorkerPool;
 import de.skyengine.graphics.FrameProfiler;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.texture.BlockTextureAtlas;
@@ -41,7 +42,11 @@ public final class RemoteWorldView implements AutoCloseable {
     private final ParticleEngine particleEngine;
     private final ParticleRenderer particleRenderer;
     private final ReplicatedChunkWorldAdapter replicatedChunks;
+    private EntityPlayer physicsPlayer;
     private boolean closed;
+    private int watchdogPresentationRadius = Integer.MIN_VALUE;
+    private long watchdogStalledSinceNanos;
+    private long watchdogLastResyncNanos;
     private final BlockRaycast.BlockAccess blockAccess = new BlockRaycast.BlockAccess() {
         @Override public int getBlock(int x, int y, int z) {
             if (y < 0 || y >= Chunk.HEIGHT) return Blocks.AIR;
@@ -63,11 +68,19 @@ public final class RemoteWorldView implements AutoCloseable {
 
     public RemoteWorldView(String dimension, ReplicatedChunkCache cache, BlockTextureAtlas atlas,
                            BlockEntityRenderDispatcher blockEntityRenderers) {
+        this(dimension, cache, atlas, blockEntityRenderers, null);
+    }
+
+    public RemoteWorldView(String dimension, ReplicatedChunkCache cache, BlockTextureAtlas atlas,
+                           BlockEntityRenderDispatcher blockEntityRenderers,
+                           WorldWorkerPool sharedWorkers) {
         this.dimension = java.util.Objects.requireNonNull(dimension);
         this.cache = java.util.Objects.requireNonNull(cache);
         this.blockEntityRenderers = blockEntityRenderers;
         this.environment = environment(dimension);
-        this.chunks = new ChunkManager(null, null, this.environment.hasSkylight());
+        this.chunks = sharedWorkers == null
+                ? new ChunkManager(null, null, clientChunkWorkers(), this.environment.hasSkylight())
+                : new ChunkManager(null, null, sharedWorkers, this.environment.hasSkylight());
         this.physicsDimension = Dimension.replicatedClientView(
                 Identifier.of(dimension), this.environment, this.chunks);
         this.particleEngine = new ParticleEngine(this.physicsDimension);
@@ -84,7 +97,7 @@ public final class RemoteWorldView implements AutoCloseable {
                     dimension, this.chunks, this.physicsDimension);
             this.replicatedChunks = adapter;
             this.cache.setListener(adapter);
-            for (var snapshot : this.cache.snapshots()) adapter.chunkLoaded(snapshot);
+            for (var snapshot : this.cache.snapshots()) adapter.chunkLoadedAsync(snapshot);
             this.renderer = created;
         } catch (RuntimeException | Error failure) {
             this.cache.setListener(null);
@@ -107,10 +120,17 @@ public final class RemoteWorldView implements AutoCloseable {
 
     public void render(Camera camera, Runnable playerPass, List<? extends Entity> entities,
                        float partialTick) {
+        this.updatePreparedChunks();
+        if (this.physicsPlayer != null) {
+            this.chunks.setReplicatedRenderAnchor(
+                    (int) Math.floor(this.physicsPlayer.x) >> ChunkSection.SHIFT,
+                    (int) Math.floor(this.physicsPlayer.z) >> ChunkSection.SHIFT);
+        }
         FrameProfiler.cpuStart(FrameProfiler.Cpu.REMESH);
         this.chunks.processRemeshes();
         FrameProfiler.cpuStop(FrameProfiler.Cpu.REMESH);
         this.renderer.renderSolid(camera);
+        this.maintainClosedPresentationFront();
         if (this.blockEntityRenderers != null) {
             this.blockEntityRenderers.render(this.chunks, camera, partialTick,
                     this.environment.ambientLight());
@@ -123,6 +143,8 @@ public final class RemoteWorldView implements AutoCloseable {
     }
 
     public int loadedChunks() { return this.chunks.getChunks().size(); }
+    public void setRenderDistance(int chunks) { this.chunks.setRenderDistance(chunks); }
+    public void updatePreparedChunks() { this.replicatedChunks.drainPreparedChunks(); }
     public String dimension() { return this.dimension; }
     public ChunkRenderer chunks() { return this.renderer; }
     public DimensionEnvironment environment() { return this.environment; }
@@ -142,13 +164,24 @@ public final class RemoteWorldView implements AutoCloseable {
         }
     }
     public void setPhysicsPlayer(EntityPlayer player) {
+        this.physicsPlayer = player;
         this.physicsDimension.setReplicatedPhysicsPlayer(player);
+        if (player != null) {
+            this.chunks.setReplicatedRenderAnchor(
+                    (int) Math.floor(player.x) >> ChunkSection.SHIFT,
+                    (int) Math.floor(player.z) >> ChunkSection.SHIFT);
+        }
     }
     public void setAuthoritativeChunkListener(java.util.function.BiConsumer<Integer, Integer> listener) {
         this.replicatedChunks.setAuthoritativeUpdateListener(listener);
     }
     public boolean isPhysicsAreaReady(double x, double z) {
         return isAreaReady(x, z, false, 2);
+    }
+
+    public boolean isPhysicsChunkReady(int chunkX, int chunkZ) {
+        Chunk chunk = this.chunks.getChunk(chunkX, chunkZ);
+        return chunk != null && chunk.status.isAtLeast(ChunkStatus.LIT);
     }
 
     /** Spawn gate: the game is shown only after collision data is present and its meshes uploaded. */
@@ -171,6 +204,55 @@ public final class RemoteWorldView implements AutoCloseable {
             }
         }
         return true;
+    }
+
+    /**
+     * A TCP connection should not lose data, but an obsolete/cancelled async ticket must not be
+     * able to leave the closed front stuck forever. After five seconds without radius progress,
+     * rescan local mesh eligibility and request one nearest genuinely missing source column.
+     */
+    private void maintainClosedPresentationFront() {
+        if (this.physicsPlayer == null) return;
+        int radius = this.chunks.replicatedPresentationRadius();
+        int target = this.chunks.getRenderDistance();
+        long now = System.nanoTime();
+        if (radius >= target) {
+            this.watchdogPresentationRadius = radius;
+            this.watchdogStalledSinceNanos = now;
+            return;
+        }
+        if (radius != this.watchdogPresentationRadius) {
+            this.watchdogPresentationRadius = radius;
+            this.watchdogStalledSinceNanos = now;
+            return;
+        }
+        if (now - this.watchdogStalledSinceNanos < 5_000_000_000L
+                || now - this.watchdogLastResyncNanos < 500_000_000L) return;
+        this.watchdogLastResyncNanos = now;
+        this.chunks.rescanReplicatedMeshCandidates();
+
+        int centerX = (int) Math.floor(this.physicsPlayer.x) >> ChunkSection.SHIFT;
+        int centerZ = (int) Math.floor(this.physicsPlayer.z) >> ChunkSection.SHIFT;
+        int extent = target + 1;
+        int nearestX = 0, nearestZ = 0, nearestDistance = Integer.MAX_VALUE;
+        for (int dz = -extent; dz <= extent; dz++) {
+            for (int dx = -extent; dx <= extent; dx++) {
+                int visibleDx = Math.max(0, Math.abs(dx) - 1);
+                int visibleDz = Math.max(0, Math.abs(dz) - 1);
+                if (visibleDx * visibleDx + visibleDz * visibleDz > target * target) continue;
+                if (this.chunks.getChunk(centerX + dx, centerZ + dz) != null) continue;
+                int distance = dx * dx + dz * dz;
+                if (distance < nearestDistance) {
+                    nearestDistance = distance;
+                    nearestX = centerX + dx;
+                    nearestZ = centerZ + dz;
+                }
+            }
+        }
+        if (nearestDistance != Integer.MAX_VALUE) {
+            this.cache.requestResyncNow(this.dimension, nearestX, nearestZ);
+            this.watchdogStalledSinceNanos = now;
+        }
     }
 
     @Override public void close() {
@@ -196,5 +278,10 @@ public final class RemoteWorldView implements AutoCloseable {
             }
         }
         return DimensionEnvironment.OVERWORLD;
+    }
+
+    private static int clientChunkWorkers() {
+        int processors = Runtime.getRuntime().availableProcessors();
+        return Math.min(8, Math.max(2, processors / 4));
     }
 }

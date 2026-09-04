@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.IntUnaryOperator;
 
 /** Canonical packet table shared by local and socket transports. */
 public final class CoreProtocol {
@@ -200,11 +201,12 @@ public final class CoreProtocol {
                 LogicalChannel.CHUNK_DATA, DeliveryClass.RELIABLE_ORDERED, 512,
                 PacketCodec.of((out, p) -> {
                     out.writeVarLong(p.batchId());
+                    out.writeVarLong(p.leaseId());
                     out.writeString(p.dimension(), ProtocolLimits.MAX_IDENTIFIER_BYTES);
                     out.writeInt(p.centerChunkX());
                     out.writeInt(p.centerChunkZ());
                     out.writeVarInt(p.chunkCount());
-                }, in -> new CorePackets.ChunkBatchStart(in.readVarLong(),
+                }, in -> new CorePackets.ChunkBatchStart(in.readVarLong(), in.readVarLong(),
                         in.readString(ProtocolLimits.MAX_IDENTIFIER_BYTES), in.readInt(), in.readInt(),
                         checkedCount(in, 0, 4225, "chunk batch")))));
         registry.register(type(21, CorePackets.ChunkColumnData.class, PacketDirection.SERVER_TO_CLIENT, play,
@@ -220,7 +222,9 @@ public final class CoreProtocol {
                 PacketCodec.of((out, p) -> {
                     out.writeVarLong(p.batchId()); out.writeVarInt(p.fragmentIndex());
                     out.writeVarInt(p.fragmentCount()); out.writeVarInt(p.totalLength());
-                    out.writeByteArray(p.data(), CorePackets.ChunkColumnFragment.MAX_FRAGMENT_BYTES);
+                    java.nio.ByteBuffer data = p.dataView();
+                    out.writeVarInt(data.remaining());
+                    out.writeRawBytes(data);
                 }, in -> {
                     try { return new CorePackets.ChunkColumnFragment(in.readVarLong(), in.readVarInt(),
                             in.readVarInt(), in.readVarInt(),
@@ -232,18 +236,21 @@ public final class CoreProtocol {
                 PacketCodec.of((out, p) -> out.writeVarLong(p.batchId()),
                         in -> new CorePackets.ChunkBatchEnd(in.readVarLong()))));
         registry.register(type(28, CorePackets.ChunkBatchApplied.class, PacketDirection.CLIENT_TO_SERVER, play,
-                LogicalChannel.CHUNK_DATA, DeliveryClass.RELIABLE_ORDERED, 16,
-                PacketCodec.of((out, p) -> out.writeVarLong(p.batchId()), in -> {
-                    try { return new CorePackets.ChunkBatchApplied(in.readVarLong()); }
+                LogicalChannel.CHUNK_DATA, DeliveryClass.RELIABLE_ORDERED, 24,
+                PacketCodec.of((out, p) -> {
+                    out.writeVarLong(p.batchId()); out.writeVarLong(p.leaseId());
+                }, in -> {
+                    try { return new CorePackets.ChunkBatchApplied(in.readVarLong(), in.readVarLong()); }
                     catch (IllegalArgumentException e) { throw new ProtocolException("Invalid chunk ack", e); }
                 })));
         registry.register(type(23, CorePackets.UnloadChunk.class, PacketDirection.SERVER_TO_CLIENT, play,
                 LogicalChannel.CHUNK_DATA, DeliveryClass.RELIABLE_ORDERED, 272,
                 PacketCodec.of((out, p) -> {
+                    out.writeVarLong(p.leaseId());
                     out.writeString(p.dimension(), ProtocolLimits.MAX_IDENTIFIER_BYTES);
                     out.writeInt(p.chunkX()); out.writeInt(p.chunkZ());
-                }, in -> new CorePackets.UnloadChunk(in.readString(ProtocolLimits.MAX_IDENTIFIER_BYTES),
-                        in.readInt(), in.readInt()))));
+                }, in -> new CorePackets.UnloadChunk(in.readVarLong(),
+                        in.readString(ProtocolLimits.MAX_IDENTIFIER_BYTES), in.readInt(), in.readInt()))));
         registry.register(type(11, CorePackets.ChunkResyncRequest.class, PacketDirection.CLIENT_TO_SERVER, play,
                 LogicalChannel.GAMEPLAY, DeliveryClass.RELIABLE_ORDERED, 288,
                 PacketCodec.of((out, p) -> {
@@ -680,10 +687,22 @@ public final class CoreProtocol {
             writeLight(out, section.skyLight());
             writeLight(out, section.blockLight());
         }
-        for (int i = 0; i < ChunkColumnSnapshot.COLUMN_CELLS; i++) out.writeInt(chunk.biomeId(i));
-        for (int i = 0; i < ChunkColumnSnapshot.TINT_CORNERS; i++) out.writeInt(chunk.grassTintCorner(i));
-        for (int i = 0; i < ChunkColumnSnapshot.TINT_CORNERS; i++) out.writeInt(chunk.foliageTintCorner(i));
-        for (int i = 0; i < ChunkColumnSnapshot.COLUMN_CELLS; i++) out.writeInt(chunk.height(i));
+        for (int i = 0; i < ChunkColumnSnapshot.COLUMN_CELLS; i++) {
+            int biome = chunk.biomeId(i);
+            if (biome < 0 || biome > 1_000_000) throw new ProtocolException("Invalid biome ID");
+            out.writeVarInt(biome);
+        }
+        for (int i = 0; i < ChunkColumnSnapshot.TINT_CORNERS; i++) {
+            writeRgb24(out, chunk.grassTintCorner(i));
+        }
+        for (int i = 0; i < ChunkColumnSnapshot.TINT_CORNERS; i++) {
+            writeRgb24(out, chunk.foliageTintCorner(i));
+        }
+        for (int i = 0; i < ChunkColumnSnapshot.COLUMN_CELLS; i++) {
+            int height = chunk.height(i);
+            if (height < 0 || height > 512) throw new ProtocolException("Invalid heightmap value");
+            out.writeShort(height);
+        }
         out.writeVarInt(chunk.blockEntities().size());
         for (BlockEntitySnapshot blockEntity : chunk.blockEntities()) {
             writeBlockEntity(out, blockEntity);
@@ -699,13 +718,27 @@ public final class CoreProtocol {
 
     /** Reassembles only after all bounded fragments have arrived. */
     public static ChunkColumnSnapshot decodeChunkSnapshot(byte[] payload) throws ProtocolException {
+        return decodeChunkSnapshot(payload, IntUnaryOperator.identity());
+    }
+
+    /** Decodes negotiated network block-state IDs directly into local runtime IDs. */
+    public static ChunkColumnSnapshot decodeChunkSnapshot(byte[] payload,
+                                                           IntUnaryOperator blockStateMapper)
+            throws ProtocolException {
         PacketBuffer input = PacketBuffer.wrap(payload);
-        ChunkColumnSnapshot chunk = readChunk(input);
+        ChunkColumnSnapshot chunk = readChunk(input, blockStateMapper);
         input.requireFullyRead();
         return chunk;
     }
 
     private static ChunkColumnSnapshot readChunk(PacketBuffer in) throws ProtocolException {
+        return readChunk(in, IntUnaryOperator.identity());
+    }
+
+    private static ChunkColumnSnapshot readChunk(PacketBuffer in,
+                                                 IntUnaryOperator blockStateMapper)
+            throws ProtocolException {
+        if (blockStateMapper == null) throw new NullPointerException("blockStateMapper");
         String dimension = in.readString(ProtocolLimits.MAX_IDENTIFIER_BYTES);
         int chunkX = in.readInt(), chunkZ = in.readInt();
         long revision = in.readVarLong();
@@ -716,7 +749,16 @@ public final class CoreProtocol {
             int nonAir = checkedCount(in, 1, ChunkSectionSnapshot.VOLUME, "non-air blocks");
             int paletteSize = checkedCount(in, 1, ChunkSectionSnapshot.VOLUME, "block palette");
             int[] palette = new int[paletteSize];
-            for (int p = 0; p < paletteSize; p++) palette[p] = in.readVarInt();
+            for (int p = 0; p < paletteSize; p++) {
+                int networkId = in.readVarInt();
+                try {
+                    palette[p] = blockStateMapper.applyAsInt(networkId);
+                } catch (IllegalArgumentException invalid) {
+                    throw new ProtocolException(invalid.getMessage() == null
+                            ? "Invalid block-state mapping" : invalid.getMessage(), invalid);
+                }
+                if (palette[p] < 0) throw new ProtocolException("Negative mapped block state ID");
+            }
             int bits = in.readUnsignedByte();
             int expectedLongs = bits == 0 ? 0
                     : (int) (((long) ChunkSectionSnapshot.VOLUME * bits + 63) / 64);
@@ -732,10 +774,17 @@ public final class CoreProtocol {
             }
         }
         try {
-            int[] biomes = readFixedInts(in, ChunkColumnSnapshot.COLUMN_CELLS);
-            int[] grass = readFixedInts(in, ChunkColumnSnapshot.TINT_CORNERS);
-            int[] foliage = readFixedInts(in, ChunkColumnSnapshot.TINT_CORNERS);
-            int[] heightmap = readFixedInts(in, ChunkColumnSnapshot.COLUMN_CELLS);
+            int[] biomes = new int[ChunkColumnSnapshot.COLUMN_CELLS];
+            for (int i = 0; i < biomes.length; i++) {
+                biomes[i] = checkedCount(in, 0, 1_000_000, "biome ID");
+            }
+            int[] grass = readRgb24Array(in, ChunkColumnSnapshot.TINT_CORNERS);
+            int[] foliage = readRgb24Array(in, ChunkColumnSnapshot.TINT_CORNERS);
+            int[] heightmap = new int[ChunkColumnSnapshot.COLUMN_CELLS];
+            for (int i = 0; i < heightmap.length; i++) {
+                heightmap[i] = in.readUnsignedShort();
+                if (heightmap[i] > 512) throw new ProtocolException("Invalid heightmap value");
+            }
             int blockEntityCount = checkedCount(in, 0, ChunkSectionSnapshot.VOLUME * 16,
                     "block entities");
             List<BlockEntitySnapshot> blockEntities = new ArrayList<>(blockEntityCount);
@@ -787,9 +836,19 @@ public final class CoreProtocol {
         return new LightPlane(mode, in.readRawBytes(bytes));
     }
 
-    private static int[] readFixedInts(PacketBuffer in, int count) throws ProtocolException {
+    private static void writeRgb24(PacketBuffer out, int value) throws ProtocolException {
+        if ((value & 0xFF000000) != 0) throw new ProtocolException("Invalid RGB tint");
+        out.writeByte(value >>> 16);
+        out.writeByte(value >>> 8);
+        out.writeByte(value);
+    }
+
+    private static int[] readRgb24Array(PacketBuffer in, int count) throws ProtocolException {
         int[] values = new int[count];
-        for (int i = 0; i < count; i++) values[i] = in.readInt();
+        for (int i = 0; i < count; i++) {
+            values[i] = in.readUnsignedByte() << 16 | in.readUnsignedByte() << 8
+                    | in.readUnsignedByte();
+        }
         return values;
     }
 

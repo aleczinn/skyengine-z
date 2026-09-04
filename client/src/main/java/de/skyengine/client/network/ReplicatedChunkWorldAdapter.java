@@ -13,13 +13,22 @@ import de.skyengine.shared.world.ChunkColumnSnapshot;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.function.BiConsumer;
 
 /** Owner-thread bridge from network L0 snapshots to the existing chunk mesher/renderer input. */
 public final class ReplicatedChunkWorldAdapter implements ReplicatedChunkCache.Listener {
+    private record Prepared(ChunkColumnSnapshot snapshot, Chunk chunk, Throwable failure,
+                            CompletableFuture<Void> completion) { }
     private final String dimension;
     private final ChunkManager chunks;
     private final Dimension world;
+    private final ConcurrentLinkedQueue<Prepared> prepared = new ConcurrentLinkedQueue<>();
+    private final ConcurrentHashMap<Long, ChunkColumnSnapshot> latestPreparations = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<ChunkColumnSnapshot, Chunk> payloadDecodedChunks = new ConcurrentHashMap<>();
     private BiConsumer<Integer, Integer> authoritativeUpdateListener = (x, z) -> { };
 
     public ReplicatedChunkWorldAdapter(String dimension, ChunkManager chunks) {
@@ -48,8 +57,75 @@ public final class ReplicatedChunkWorldAdapter implements ReplicatedChunkCache.L
         }
     }
 
+    @Override
+    public CompletionStage<Void> chunkLoadedAsync(ChunkColumnSnapshot snapshot) {
+        if (!this.dimension.equals(snapshot.dimension())) return CompletableFuture.completedFuture(null);
+        CompletableFuture<Void> completion = new CompletableFuture<>();
+        long key = Chunk.key(snapshot.chunkX(), snapshot.chunkZ());
+        this.latestPreparations.put(key, snapshot);
+        Chunk payloadDecoded = this.payloadDecodedChunks.remove(snapshot);
+        if (payloadDecoded != null) {
+            this.prepared.add(new Prepared(snapshot, payloadDecoded, null, completion));
+            return completion;
+        }
+        this.chunks.prepareReplicatedChunk(() -> {
+            try {
+                Chunk decoded = LegacyChunkSnapshotDecoder.decode(snapshot, this.world);
+                this.prepared.add(new Prepared(snapshot, decoded, null, completion));
+            } catch (Throwable failure) {
+                this.prepared.add(new Prepared(snapshot, null, failure, completion));
+            }
+        });
+        return completion;
+    }
+
+    @Override
+    public CompletionStage<ChunkColumnSnapshot> decodeChunkPayloadAsync(
+            byte[] payload, java.util.function.IntUnaryOperator blockStateMapper) {
+        CompletableFuture<ChunkColumnSnapshot> completion = new CompletableFuture<>();
+        this.chunks.prepareReplicatedChunk(() -> {
+            try {
+                ChunkColumnSnapshot snapshot = de.skyengine.shared.network.CoreProtocol
+                        .decodeChunkSnapshot(payload, blockStateMapper);
+                Chunk decoded = LegacyChunkSnapshotDecoder.decode(snapshot, this.world);
+                this.payloadDecodedChunks.put(snapshot, decoded);
+                completion.complete(snapshot);
+            } catch (Throwable failure) {
+                completion.completeExceptionally(failure);
+            }
+        });
+        return completion;
+    }
+
+    @Override
+    public void discardDecodedChunk(ChunkColumnSnapshot snapshot) {
+        this.payloadDecodedChunks.remove(snapshot);
+    }
+
+    /** Uebernimmt fertige CPU-Decodes ausschliesslich auf dem Client-Owner-Thread. */
+    public void drainPreparedChunks() {
+        Prepared result;
+        while ((result = this.prepared.poll()) != null) {
+            if (result.failure() != null) {
+                result.completion().completeExceptionally(result.failure());
+                continue;
+            }
+            long key = Chunk.key(result.snapshot().chunkX(), result.snapshot().chunkZ());
+            if (this.latestPreparations.get(key) == result.snapshot()) {
+                this.latestPreparations.remove(key, result.snapshot());
+                this.chunks.installReplicatedChunk(result.chunk());
+                this.authoritativeUpdateListener.accept(
+                        result.snapshot().chunkX(), result.snapshot().chunkZ());
+            }
+            result.completion().complete(null);
+        }
+    }
+
     @Override public void chunkUnloaded(String dimension, int chunkX, int chunkZ) {
-        if (this.dimension.equals(dimension)) this.chunks.removeReplicatedChunk(chunkX, chunkZ);
+        if (this.dimension.equals(dimension)) {
+            this.latestPreparations.remove(Chunk.key(chunkX, chunkZ));
+            this.chunks.removeReplicatedChunk(chunkX, chunkZ);
+        }
     }
 
     @Override public void blocksChanged(String dimension, int chunkX, int chunkZ, long revision,

@@ -257,6 +257,42 @@ Runtime-Baseline. FPS-Angaben aus manuellen Spielsitzungen werden hier bewusst n
 Referenz eingetragen. Diese Lücke sollte mit der oben beschriebenen festen Szene geschlossen
 werden.
 
+## Multiplayer-L0-Streaming messen
+
+Der Dedicated Server verwendet standardmäßig `availableProcessors * 5 / 8` World-Worker; der
+Remote-Client bis zu acht eigene Decode-/Mesh-Worker. Beim Integrated Server gibt es dagegen
+keine feste Aufteilung: Server-Worldgen, Snapshot-Aufbau, Client-Decode und Meshing teilen sich
+`availableProcessors - 4` gewichtete, starvation-freie Worker. Die Werte werden beim Start
+ausgegeben und lassen sich für Dedicated Server über `worker-threads` fest einstellen.
+
+Für einen reproduzierbaren manuellen Cold-Streaming-Lauf:
+
+1. Server und Client mit derselben Welt, Renderdistanz und Blickrichtung starten.
+2. Unmittelbar nach `PLAY`, nach vollständig sichtbarem Radius und nach einer festen
+   Spectator-Flugroute jeweils `net` und `perf` in der Serverkonsole ausführen.
+3. `pending/in-flight/ready/ack/applied`, World-Worker-Auslastung, Queues, TX-Bytes und
+   Chunk-Encoding-Zeit zusammen mit der Zeit bis zum geschlossenen sichtbaren Radius notieren.
+4. Für Loopback beachten: TCP-Chunkdaten sind unkomprimiert und erhalten 128 MiB/s; das
+   Bytebudget wird von Netty unabhängig vom 20-TPS-Takt abgearbeitet. Echte Remote-Verbindungen
+   verwenden `chunk-bytes-per-second` und optional Zstd.
+
+Bei schneller Bewegung werden wartende Worldgen-Stufen außerhalb des aktuellen gemeinsamen
+Spielerinteresses abgebrochen und verbleibende Aufgaben neu nach Nähe und Bewegungsrichtung
+eingereiht. Der Load-Vorlauf ist auf ungefähr zwei Aufgaben pro World-Worker begrenzt. Auf der
+Netzwerkseite dürfen pro Spieler höchstens 16 vollständige Chunkbatches auf eine Clientbestätigung
+warten; veraltete, noch nicht kodierte Batches sind abbrechbar. Diese Grenzen sollen bei einem
+Flugtest verhindern, dass alte Koordinaten minutenlang vor der aktuellen Sichtfront liegen.
+
+Der automatisierte Protokoll-/Session-Lasttest bleibt:
+
+```powershell
+.\gradlew.bat multiplayerLoadTest -Pplayers=8 -Pseconds=10
+```
+
+Er ersetzt keinen visuellen Chunkstreaming-Lauf, prüft aber Sessions, Tickzeiten und begrenzte
+Queues ohne Renderer. Ein Streamingvergleich ist nur gültig, wenn sichtbare Renderdistanz,
+Meshing-Halo, Weltzustand, Kompression und Workerzahl identisch dokumentiert sind.
+
 ## Neue Baseline eintragen
 
 Bei einer relevanten Änderung einen neuen Abschnitt oder eine neue Tabellenzeile ergänzen:

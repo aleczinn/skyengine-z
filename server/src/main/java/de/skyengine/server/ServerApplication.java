@@ -60,6 +60,10 @@ public final class ServerApplication implements AutoCloseable {
                 : this.world instanceof HeadlessWorldRuntime headless
                 ? " (seed " + headless.seed() + ")" : ""));
         System.out.println("[Server] SkyEngine server listening on " + this.network.localAddress());
+        System.out.println("[Server] Workers: world+snapshot=" + this.config.workerThreads()
+                + ", packet-encode=" + encoderThreads
+                + ", network-io=" + Math.min(4, Math.max(2,
+                Runtime.getRuntime().availableProcessors() / 8)));
         startTickLoop("Server Tick");
     }
 
@@ -67,6 +71,10 @@ public final class ServerApplication implements AutoCloseable {
         if (this.tickLoop != null) throw new IllegalStateException("Server already started");
         LocalTransport.Pair pair = LocalTransport.create();
         this.sessions.accept(pair.server());
+        if (this.world instanceof AuthoritativeWorldRuntime authoritative) {
+            System.out.println("[Integrated Server] Workers: shared-world-snapshot-client="
+                    + authoritative.workerPool().workerCount());
+        }
         startTickLoop("Integrated Server Tick");
         return pair;
     }

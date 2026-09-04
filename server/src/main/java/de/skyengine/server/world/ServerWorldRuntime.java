@@ -13,6 +13,7 @@ import de.skyengine.shared.gameplay.PlayerAbilityAction;
 import de.skyengine.shared.player.PlayerMovementState;
 import de.skyengine.shared.network.pack.PackDescriptor;
 import de.skyengine.shared.network.pack.RegistryMapping;
+import de.skyengine.game.physics.ChunkMovementLimiter;
 
 import java.nio.file.Path;
 import java.util.Optional;
@@ -20,9 +21,11 @@ import java.util.List;
 
 /** Tick-owned world boundary. The existing world implementation is migrated behind this interface. */
 public interface ServerWorldRuntime extends AutoCloseable {
+    record WorkerStats(int workers, int active, int queued) { }
     Path directory();
     void tick(long serverTick);
     void autosave(long serverTick);
+    default WorkerStats workerStats() { return new WorkerStats(0, 0, 0); }
     /** Required pack manifest advertised before registry synchronization. */
     default List<PackDescriptor> packManifest() { return List.of(); }
     /** Ordered runtime IDs. Implementations must keep each identifier list in network-ID order. */
@@ -56,6 +59,12 @@ public interface ServerWorldRuntime extends AutoCloseable {
                 input.yaw(), input.pitch(), previous.grounded(), previous.gameMode(), previous.movementState(),
                 previous.health(), previous.foodLevel(), previous.saturation(), previous.selectedHotbarSlot(),
                 previous.vehicleEntityId(), previous.spectatorFlySpeed());
+    }
+    default PlayerStateSnapshot applyPlayerInput(PlayerIdentity identity, int entityId,
+                                                 PlayerStateSnapshot previous, PlayerInputFrame input,
+                                                 long serverTick,
+                                                 ChunkMovementLimiter.Availability availability) {
+        return applyPlayerInput(identity, entityId, previous, input, serverTick);
     }
     /** Applies an edge-triggered ability exactly once without advancing movement physics. */
     default PlayerStateSnapshot applyPlayerAbility(PlayerIdentity identity, int entityId,

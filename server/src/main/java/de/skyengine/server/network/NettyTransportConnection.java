@@ -47,7 +47,7 @@ public final class NettyTransportConnection implements TransportConnection, Comp
     private record EncodedOutbound(LogicalChannel channel, DeliveryClass delivery,
                                    Class<?> packetClass, long sequence, byte[] framed) {}
     private record CompressionSettings(String algorithm, int threshold, int maximumBytes, int level) {}
-    private record PendingBatch(ConnectionState state, CompressionSettings compression,
+    private record PendingBatch(long batchId, ConnectionState state, CompressionSettings compression,
                                 java.util.List<PacketEnvelope> packets) {}
 
     private final String id = "tcp-" + UUID.randomUUID();
@@ -74,6 +74,11 @@ public final class NettyTransportConnection implements TransportConnection, Comp
     private final AtomicLong encodedBatches = new AtomicLong();
     private final AtomicLong encodedBatchPackets = new AtomicLong();
     private final AtomicLong batchEncodingNanos = new AtomicLong();
+    /* The server tick grants bandwidth credit, while Netty drains it whenever the socket is
+       writable. Previously a single flush per 50-ms tick stopped at the 1-MiB high watermark;
+       even loopback traffic was therefore accidentally capped by TPS rather than bandwidth. */
+    private final AtomicLong outboundByteCredit = new AtomicLong();
+    private final AtomicBoolean outboundDrainScheduled = new AtomicBoolean();
     private String compression = "none";
     private int compressionThreshold;
     private int maximumDecompressedBytes = de.skyengine.shared.network.ProtocolLimits.MAX_DECOMPRESSED_BYTES;
@@ -114,7 +119,19 @@ public final class NettyTransportConnection implements TransportConnection, Comp
     public boolean send(PacketEnvelope envelope) {
         if (!open()) return false;
         try {
-            return enqueueEncoded(encode(envelope, state(), compressionSettings()));
+            ConnectionState capturedState = state();
+            PacketType<?> type = this.registry.type(envelope.packet());
+            if (type.direction() != this.outboundDirection || !type.states().contains(capturedState)) {
+                return false;
+            }
+            /* Only bulk snapshot packets use the cancellable encoder FIFO. Lease-tagged unloads
+               and revisioned deltas may bypass stale snapshots; the client rejects an older
+               lease and buffers a delta until its base column exists. */
+            if (type.channel() == LogicalChannel.CHUNK_DATA && isBulkChunkPacket(envelope)) {
+                return enqueuePendingBatch(new PendingBatch(-1, capturedState, compressionSettings(),
+                        java.util.List.of(envelope)));
+            }
+            return enqueueEncoded(encode(envelope, capturedState, compressionSettings()));
         } catch (ProtocolException e) {
             disconnect(DisconnectReason.INTERNAL_ERROR, e.getMessage());
             return false;
@@ -136,39 +153,96 @@ public final class NettyTransportConnection implements TransportConnection, Comp
         } catch (ProtocolException e) {
             return false;
         }
-        int size = immutable.size();
+        long batchId = immutable.stream()
+                .map(PacketEnvelope::packet)
+                .filter(CorePackets.ChunkBatchStart.class::isInstance)
+                .map(CorePackets.ChunkBatchStart.class::cast)
+                .mapToLong(CorePackets.ChunkBatchStart::batchId)
+                .findFirst().orElse(-1L);
+        return enqueuePendingBatch(new PendingBatch(batchId, capturedState, compressionSettings(), immutable));
+    }
+
+    @Override
+    public boolean cancelBatch(long batchId) {
+        if (batchId < 0) return false;
+        for (PendingBatch pending : this.pendingBatches) {
+            if (pending.batchId() != batchId || !this.pendingBatches.remove(pending)) continue;
+            this.pendingBatchPackets.updateAndGet(value ->
+                    Math.max(0, value - pending.packets().size()));
+            return true;
+        }
+        return false;
+    }
+
+    private boolean enqueuePendingBatch(PendingBatch batch) {
+        int size = batch.packets().size();
         int pending = this.pendingBatchPackets.addAndGet(size);
         if (pending > OUTBOUND_CAPACITY) {
             this.pendingBatchPackets.addAndGet(-size);
             return false;
         }
-        this.pendingBatches.add(new PendingBatch(capturedState, compressionSettings(), immutable));
+        this.pendingBatches.add(batch);
         scheduleBatchDrain();
         return true;
     }
 
+    private static boolean isBulkChunkPacket(PacketEnvelope envelope) {
+        return envelope.packet() instanceof CorePackets.ChunkBatchStart
+                || envelope.packet() instanceof CorePackets.ChunkColumnData
+                || envelope.packet() instanceof CorePackets.ChunkColumnFragment
+                || envelope.packet() instanceof CorePackets.ChunkBatchEnd;
+    }
+
     public int flushOutbound(int byteBudget) {
-        if (!open() || !this.channel.isWritable()) return 0;
+        if (!open() || byteBudget <= 0) return 0;
+        long maximumCredit = Math.max(1024L * 1024L, (long) byteBudget * 2L);
+        this.outboundByteCredit.updateAndGet(current ->
+                Math.min(maximumCredit, current + (long) byteBudget));
+        return scheduleOutboundDrain();
+    }
+
+    private int scheduleOutboundDrain() {
+        if (!open() || !this.channel.isWritable() || this.outboundByteCredit.get() <= 0
+                || this.outboundCount.get() <= 0
+                || !this.outboundDrainScheduled.compareAndSet(false, true)) return 0;
+        if (this.channel.eventLoop().inEventLoop()) return drainOutboundOnEventLoop();
+        this.channel.eventLoop().execute(this::drainOutboundOnEventLoop);
+        return 0;
+    }
+
+    private int drainOutboundOnEventLoop() {
         int written = 0;
         boolean progress;
-        do {
-            progress = false;
-            for (LogicalChannel logicalChannel : LogicalChannel.values()) {
-                EncodedOutbound encoded = this.outbound.get(logicalChannel).peek();
-                if (encoded == null) continue;
-                if (written > 0 && written + encoded.framed().length > byteBudget) continue;
-                this.outbound.get(logicalChannel).poll();
-                this.outboundCount.decrementAndGet();
-                this.channel.write(Unpooled.wrappedBuffer(encoded.framed()));
-                this.sentPackets.incrementAndGet();
-                this.sentBytes.addAndGet(encoded.framed().length);
-                written += encoded.framed().length;
-                progress = true;
-                if (written >= byteBudget) break;
-            }
-        } while (progress && written < byteBudget && this.channel.isWritable());
-        if (written > 0) this.channel.flush();
-        return written;
+        try {
+            do {
+                progress = false;
+                for (LogicalChannel logicalChannel : LogicalChannel.values()) {
+                    EncodedOutbound encoded = this.outbound.get(logicalChannel).peek();
+                    if (encoded == null) continue;
+                    long credit = this.outboundByteCredit.get();
+                    if (credit <= 0) break;
+                    /* A single legal frame may be larger than the remaining tick budget. Let
+                       exactly that frame exhaust the grant instead of leaving a small positive
+                       remainder that repeatedly reschedules the pump without making progress. */
+                    this.outbound.get(logicalChannel).poll();
+                    this.outboundCount.decrementAndGet();
+                    this.outboundByteCredit.updateAndGet(value ->
+                            Math.max(0L, value - encoded.framed().length));
+                    this.channel.write(Unpooled.wrappedBuffer(encoded.framed()));
+                    this.sentPackets.incrementAndGet();
+                    this.sentBytes.addAndGet(encoded.framed().length);
+                    written += encoded.framed().length;
+                    progress = true;
+                    if (!this.channel.isWritable() || this.outboundByteCredit.get() <= 0) break;
+                }
+            } while (progress && this.channel.isWritable() && this.outboundByteCredit.get() > 0);
+            if (written > 0) this.channel.flush();
+            return written;
+        } finally {
+            this.outboundDrainScheduled.set(false);
+            /* Backpressure resumes through channelWritabilityChanged. A producer that races
+               this reset is picked up by the next bandwidth grant (at most one server tick). */
+        }
     }
 
     void receive(ByteBuf frame) {
@@ -304,6 +378,7 @@ public final class NettyTransportConnection implements TransportConnection, Comp
             return false;
         }
         this.outboundCount.incrementAndGet();
+        scheduleOutboundDrain();
         return true;
     }
 
@@ -418,6 +493,12 @@ public final class NettyTransportConnection implements TransportConnection, Comp
         }
         @Override public void channelInactive(ChannelHandlerContext context) {
             if (this.connection != null) this.connection.channelClosed();
+        }
+        @Override public void channelWritabilityChanged(ChannelHandlerContext context) {
+            if (this.connection != null && context.channel().isWritable()) {
+                this.connection.scheduleOutboundDrain();
+            }
+            context.fireChannelWritabilityChanged();
         }
         @Override public void exceptionCaught(ChannelHandlerContext context, Throwable cause) {
             if (this.connection != null) this.connection.disconnect(DisconnectReason.INVALID_PACKET,

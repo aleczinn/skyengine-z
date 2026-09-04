@@ -49,4 +49,15 @@ class ChunkInterestManagerTest {
         assertEquals(797, initial.entered().size());
         assertEquals(797, manager.trackedChunks("player"));
     }
+
+    @Test
+    void networkMeshingHaloMayExtendMaximumVisibleDistanceByOne() {
+        ChunkInterestManager manager = new ChunkInterestManager();
+        var initial = manager.update("player", "skyengine:overworld", 0, 0, 32, 1, 0, 0);
+        assertEquals(initial.entered().size(), manager.trackedChunks("player"));
+        assertTrue(initial.entered().stream().anyMatch(request -> request.chunkX() == 33
+                && request.chunkZ() == 0));
+        assertTrue(initial.entered().stream().anyMatch(request -> request.chunkX() == 32
+                && request.chunkZ() == 1), "diagonal source neighbour at the cardinal rim is required");
+    }
 }

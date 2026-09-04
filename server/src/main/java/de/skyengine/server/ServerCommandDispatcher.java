@@ -56,11 +56,15 @@ public final class ServerCommandDispatcher {
         var stats = this.server.sessions().networkSnapshot();
         return new Result(true, List.of(("Players %d, RX %d packets/%d bytes, TX %d packets/%d bytes, "
                         + "queues %d/%d, RTT median/p95 %.1f/%.1f ms, tracked chunks %d, "
-                        + "chunk encode %.1f ms/%d batches")
+                        + "chunk encode %.1f ms/%d batches, stream pending/in-flight/ready/ack/applied "
+                        + "%d/%d/%d/%d/%d, world workers active/total + queued %d/%d + %d")
                 .formatted(stats.players(), stats.receivedPackets(), stats.receivedBytes(), stats.sentPackets(),
                         stats.sentBytes(), stats.inboundQueue(), stats.outboundQueue(),
                         stats.medianRttMillis(), stats.p95RttMillis(), stats.trackedChunks(),
-                        stats.chunkEncodingMillis(), stats.chunkBatchesEncoded())));
+                        stats.chunkEncodingMillis(), stats.chunkBatchesEncoded(), stats.chunksPending(),
+                        stats.snapshotsInFlight(), stats.chunksReadyToSend(), stats.chunksAwaitingAck(),
+                        stats.chunksApplied(), stats.activeWorldWorkers(), stats.worldWorkers(),
+                        stats.queuedWorldTasks())));
     }
 
     private Result kick(String[] parts) {

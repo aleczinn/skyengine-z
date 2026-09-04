@@ -16,6 +16,40 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class ChunkProtocolTest {
     @Test
+    void emptyColumnHeaderUsesCompactBiomeTintAndHeightEncoding() throws Exception {
+        ChunkColumnSnapshot chunk = new ChunkColumnSnapshot("skyengine:overworld", 0, 0, 0,
+                List.of(), new int[ChunkColumnSnapshot.COLUMN_CELLS],
+                new int[ChunkColumnSnapshot.TINT_CORNERS],
+                new int[ChunkColumnSnapshot.TINT_CORNERS],
+                new int[ChunkColumnSnapshot.COLUMN_CELLS]);
+        byte[] payload = CoreProtocol.encodeChunkSnapshot(chunk);
+        ChunkColumnSnapshot decoded = CoreProtocol.decodeChunkSnapshot(payload);
+        assertArrayEquals(chunk.biomeIds(), decoded.biomeIds());
+        assertArrayEquals(chunk.grassTintCorners(), decoded.grassTintCorners());
+        assertArrayEquals(chunk.heightmap(), decoded.heightmap());
+        /* Protocol 9 used more than 16 KiB before the first section payload. */
+        org.junit.jupiter.api.Assertions.assertTrue(payload.length < 11 * 1024,
+                "fixed column metadata unexpectedly expanded to " + payload.length + " bytes");
+    }
+
+    @Test
+    void chunkDecodeMapsBlockStatePaletteDuringParsing() throws Exception {
+        ChunkSectionSnapshot section = new ChunkSectionSnapshot(0, 1, new int[]{7}, 0,
+                new long[0], new LightPlane(LightPlane.Mode.UNIFORM_FULL, null),
+                new LightPlane(LightPlane.Mode.UNIFORM_ZERO, null));
+        ChunkColumnSnapshot source = new ChunkColumnSnapshot("skyengine:overworld", 2, -3, 4,
+                List.of(section), new int[ChunkColumnSnapshot.COLUMN_CELLS],
+                new int[ChunkColumnSnapshot.TINT_CORNERS],
+                new int[ChunkColumnSnapshot.TINT_CORNERS],
+                new int[ChunkColumnSnapshot.COLUMN_CELLS]);
+
+        ChunkColumnSnapshot decoded = CoreProtocol.decodeChunkSnapshot(
+                CoreProtocol.encodeChunkSnapshot(source), id -> id + 100);
+
+        assertEquals(107, decoded.sections().getFirst().paletteEntry(0));
+    }
+
+    @Test
     void nonEmptyPaletteSectionRoundTripsThroughBoundedChunkPacket() throws Exception {
         int[] biomes = new int[ChunkColumnSnapshot.COLUMN_CELLS];
         int[] grass = new int[ChunkColumnSnapshot.TINT_CORNERS];
@@ -81,7 +115,7 @@ class ChunkProtocolTest {
     @Test
     void appliedChunkBatchAcknowledgementRoundTripsClientToServer() throws Exception {
         PacketRegistry registry = CoreProtocol.createRegistry();
-        CorePackets.ChunkBatchApplied acknowledgement = new CorePackets.ChunkBatchApplied(9182);
+        CorePackets.ChunkBatchApplied acknowledgement = new CorePackets.ChunkBatchApplied(9182, 73);
         byte[] encoded = registry.encode(PacketDirection.CLIENT_TO_SERVER, ConnectionState.PLAY,
                 new PacketEnvelope(acknowledgement));
         assertEquals(acknowledgement, registry.decode(PacketDirection.CLIENT_TO_SERVER,

@@ -25,19 +25,34 @@ public final class ChunkInterestManager {
 
     public InterestDelta update(String sessionId, String dimension, int centerX, int centerZ,
                                 int viewDistance, float motionX, float motionZ) {
-        if (viewDistance < 0 || viewDistance > 32) throw new IllegalArgumentException("Invalid view distance");
+        return update(sessionId, dimension, centerX, centerZ, viewDistance, 0, motionX, motionZ);
+    }
+
+    /**
+     * Computes the visible circular interest plus an exact Chebyshev source halo. A plain
+     * radius+1 circle is insufficient: the diagonal neighbour of (viewDistance, 0) lies just
+     * outside it and would permanently prevent that boundary column from meshing.
+     */
+    public InterestDelta update(String sessionId, String dimension, int centerX, int centerZ,
+                                int viewDistance, int meshHalo, float motionX, float motionZ) {
+        if (viewDistance < 0 || viewDistance > 32 || meshHalo < 0 || meshHalo > 1) {
+            throw new IllegalArgumentException("Invalid view distance or mesh halo");
+        }
         View old = this.views.computeIfAbsent(sessionId, ignored -> new View());
-        LongHashSet next = new LongHashSet((viewDistance * 2 + 1) * (viewDistance * 2 + 1));
+        int extent = viewDistance + meshHalo;
+        LongHashSet next = new LongHashSet((extent * 2 + 1) * (extent * 2 + 1));
         List<ChunkRequest> entered = new ArrayList<>();
         boolean sameDimension = dimension.equals(old.dimension);
-        for (int dz = -viewDistance; dz <= viewDistance; dz++) {
-            for (int dx = -viewDistance; dx <= viewDistance; dx++) {
-                if (dx * dx + dz * dz > viewDistance * viewDistance) continue;
+        for (int dz = -extent; dz <= extent; dz++) {
+            for (int dx = -extent; dx <= extent; dx++) {
+                int visibleDx = Math.max(0, Math.abs(dx) - meshHalo);
+                int visibleDz = Math.max(0, Math.abs(dz) - meshHalo);
+                if (visibleDx * visibleDx + visibleDz * visibleDz > viewDistance * viewDistance) continue;
                 int chunkX = centerX + dx, chunkZ = centerZ + dz;
                 long key = ChunkPosition.pack(chunkX, chunkZ);
                 next.add(key);
                 if (!sameDimension || !old.chunks.contains(key)) {
-                    int forward = Math.round((dx * motionX + dz * motionZ) * 1024.0f);
+                    int forward = forwardScore(dx, dz, motionX, motionZ);
                     entered.add(new ChunkRequest(dimension, chunkX, chunkZ, dx * dx + dz * dz, forward));
                 }
             }
@@ -72,5 +87,12 @@ public final class ChunkInterestManager {
         View view = this.views.get(sessionId);
         return view != null && dimension.equals(view.dimension)
                 && view.chunks.contains(ChunkPosition.pack(chunkX, chunkZ));
+    }
+
+    private static int forwardScore(int dx, int dz, float motionX, float motionZ) {
+        double motionLength = Math.sqrt(motionX * motionX + motionZ * motionZ);
+        double distance = Math.sqrt((double) dx * dx + (double) dz * dz);
+        if (motionLength < 1.0E-6 || distance < 1.0E-6) return 1024;
+        return (int) Math.round((dx * motionX + dz * motionZ) / (distance * motionLength) * 1024.0);
     }
 }

@@ -24,13 +24,17 @@ final class ReplicatedChunkWorldAdapterTest {
     @Test void completedBatchesAndDeltasFeedTheExistingChunkRepresentation() throws Exception {
         ChunkManager manager = new ChunkManager(null, null, true);
         try {
-            ReplicatedChunkCache cache = new ReplicatedChunkCache(
-                    new ReplicatedChunkWorldAdapter("skyengine:overworld", manager));
+            ReplicatedChunkWorldAdapter adapter =
+                    new ReplicatedChunkWorldAdapter("skyengine:overworld", manager);
+            ReplicatedChunkCache cache = new ReplicatedChunkCache(adapter);
             ChunkColumnSnapshot snapshot = snapshot(3, -2);
 
-            cache.accept(new CorePackets.ChunkBatchStart(1, snapshot.dimension(), 3, -2, 1));
+            cache.accept(new CorePackets.ChunkBatchStart(1, 1, snapshot.dimension(), 3, -2, 1));
             cache.accept(new CorePackets.ChunkColumnData(1, snapshot));
             cache.accept(new CorePackets.ChunkBatchEnd(1));
+            manager.awaitWorkerTasks();
+            adapter.drainPreparedChunks();
+            cache.drainCompletedBatchIds();
 
             assertEquals(Blocks.STONE, manager.getChunk(3, -2).getBlock(0, 5, 0));
             cache.accept(new CorePackets.BlockUpdate(snapshot.dimension(), 3, -2, 1,
@@ -40,7 +44,7 @@ final class ReplicatedChunkWorldAdapterTest {
             assertEquals(Blocks.DIRT, LegacyChunkSnapshotDecoder.decode(
                     cache.get(snapshot.dimension(), 3, -2)).getBlock(0, 5, 0));
 
-            cache.accept(new CorePackets.UnloadChunk(snapshot.dimension(), 3, -2));
+            cache.accept(new CorePackets.UnloadChunk(1, snapshot.dimension(), 3, -2));
             assertNull(manager.getChunk(3, -2));
         } finally {
             manager.dispose();

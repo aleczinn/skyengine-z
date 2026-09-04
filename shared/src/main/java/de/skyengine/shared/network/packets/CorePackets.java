@@ -194,13 +194,22 @@ public final class CorePackets {
         @Override public byte[] metadata() { return this.metadata.clone(); }
     }
     public record EntityEvent(int networkId, int eventId, int data) implements Packet {}
-    public record ChunkBatchStart(long batchId, String dimension, int centerChunkX, int centerChunkZ,
-                                  int chunkCount) implements Packet {}
+    public record ChunkBatchStart(long batchId, long leaseId, String dimension,
+                                  int centerChunkX, int centerChunkZ, int chunkCount) implements Packet {
+        public ChunkBatchStart {
+            if (batchId < 0) throw new IllegalArgumentException("Negative chunk batch ID");
+            if (leaseId < 0) throw new IllegalArgumentException("Negative chunk lease ID");
+            Objects.requireNonNull(dimension);
+        }
+    }
     public record ChunkColumnData(long batchId, ChunkColumnSnapshot chunk) implements Packet {}
     /** Bounded transport fragment of a canonical ChunkColumnSnapshot payload. */
     public record ChunkColumnFragment(long batchId, int fragmentIndex, int fragmentCount,
                                       int totalLength, byte[] data) implements Packet {
-        public static final int MAX_FRAGMENT_BYTES = 96 * 1024;
+        /* Large enough for the common complete column to stay in one frame, still well below
+           the protocol's 2 MiB frame ceiling. Fewer fragments mean fewer array copies and
+           fewer per-packet queue/codec operations during the initial L0 burst. */
+        public static final int MAX_FRAGMENT_BYTES = 512 * 1024;
         public ChunkColumnFragment {
             data = data == null ? new byte[0] : data.clone();
             if (batchId < 0 || fragmentIndex < 0 || fragmentCount < 1 || fragmentCount > 256
@@ -211,15 +220,24 @@ public final class CorePackets {
             }
         }
         @Override public byte[] data() { return this.data.clone(); }
+        public java.nio.ByteBuffer dataView() {
+            return java.nio.ByteBuffer.wrap(this.data).asReadOnlyBuffer();
+        }
     }
     public record ChunkBatchEnd(long batchId) implements Packet {}
     /** Confirms that the complete batch is installed in the replicated CPU chunk cache. */
-    public record ChunkBatchApplied(long batchId) implements Packet {
+    public record ChunkBatchApplied(long batchId, long leaseId) implements Packet {
         public ChunkBatchApplied {
             if (batchId < 0) throw new IllegalArgumentException("Negative chunk batch ID");
+            if (leaseId < 0) throw new IllegalArgumentException("Negative chunk lease ID");
         }
     }
-    public record UnloadChunk(String dimension, int chunkX, int chunkZ) implements Packet {}
+    public record UnloadChunk(long leaseId, String dimension, int chunkX, int chunkZ) implements Packet {
+        public UnloadChunk {
+            if (leaseId < 0) throw new IllegalArgumentException("Negative chunk lease ID");
+            Objects.requireNonNull(dimension);
+        }
+    }
     public record ChunkResyncRequest(String dimension, int chunkX, int chunkZ,
                                      long knownRevision) implements Packet {
         public ChunkResyncRequest {

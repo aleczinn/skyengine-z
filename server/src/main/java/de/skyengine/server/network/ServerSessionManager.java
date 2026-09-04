@@ -55,11 +55,15 @@ import java.util.function.Consumer;
 
 /** All state transitions and gameplay hand-off occur on the server tick thread. */
 public final class ServerSessionManager implements AutoCloseable {
+    /** Invisible L0 source ring required by the client's exact neighbour-aware mesher. */
+    private static final int CHUNK_MESH_HALO = 1;
     public record NetworkSnapshot(int players, long receivedPackets, long receivedBytes, long sentPackets,
                                   long sentBytes, int inboundQueue, int outboundQueue,
                                   double medianRttMillis, double p95RttMillis, int trackedChunks,
                                   long chunkBatchesEncoded, long chunkPacketsEncoded,
-                                  double chunkEncodingMillis) {}
+                                  double chunkEncodingMillis, int chunksPending, int snapshotsInFlight,
+                                  int chunksReadyToSend, int chunksAwaitingAck, int chunksApplied,
+                                  int worldWorkers, int activeWorldWorkers, int queuedWorldTasks) {}
     private static final int MAX_PACKETS_PER_SESSION_PER_TICK = 512;
     private final ServerConfig config;
     private final IdentityProvider identities;
@@ -173,8 +177,12 @@ public final class ServerSessionManager implements AutoCloseable {
         rtts.sort(Long::compareTo);
         double median = rtts.isEmpty() ? 0 : rtts.get((rtts.size() - 1) / 2) / 1_000_000.0;
         double p95 = rtts.isEmpty() ? 0 : rtts.get((int) Math.ceil(rtts.size() * 0.95) - 1) / 1_000_000.0;
+        var stream = this.chunks.stats();
+        var workers = this.world.workerStats();
         return new NetworkSnapshot(players, rxPackets, rxBytes, txPackets, txBytes, inbound, outbound,
-                median, p95, tracked, encodedBatches, encodedPackets, encodingNanos / 1_000_000.0);
+                median, p95, tracked, encodedBatches, encodedPackets, encodingNanos / 1_000_000.0,
+                stream.pending(), stream.snapshotInFlight(), stream.readyToSend(), stream.awaitingAck(),
+                stream.applied(), workers.workers(), workers.active(), workers.queued());
     }
 
     public void tick(long tick, long nowNanos) {
@@ -239,8 +247,10 @@ public final class ServerSessionManager implements AutoCloseable {
     public void flushOutbound() {
         for (PlayerSession session : this.sessions.values()) {
             if (session.connection() instanceof NettyTransportConnection tcp) {
-                int perTickBudget = Math.max(64 * 1024,
-                        this.config.chunkBytesPerSecond() / EngineInfo.TICKS_PER_SECOND);
+                int bytesPerSecond = session.loopbackConnection()
+                        ? Math.max(this.config.chunkBytesPerSecond(), 128 * 1024 * 1024)
+                        : this.config.chunkBytesPerSecond();
+                int perTickBudget = Math.max(64 * 1024, bytesPerSecond / EngineInfo.TICKS_PER_SECOND);
                 tcp.flushOutbound(perTickBudget);
             }
         }
@@ -278,7 +288,8 @@ public final class ServerSessionManager implements AutoCloseable {
                 return;
             }
             boolean zstd = this.config.compression().equals("zstd")
-                    && session.connection() instanceof CompressionTransport;
+                    && session.connection() instanceof CompressionTransport
+                    && !session.loopbackConnection();
             session.send(new CorePackets.HandshakeAccepted(EngineInfo.PROTOCOL_VERSION,
                     EngineInfo.ENGINE_VERSION, zstd ? List.of("zstd", "none") : List.of("none")));
             session.handshakeAccepted(true);
@@ -288,7 +299,7 @@ public final class ServerSessionManager implements AutoCloseable {
             throw unexpected(packet);
         }
         boolean zstd = selection.algorithm().equals("zstd") && this.config.compression().equals("zstd")
-                && session.connection() instanceof CompressionTransport;
+                && session.connection() instanceof CompressionTransport && !session.loopbackConnection();
         if (!selection.algorithm().equals("none") && !zstd) {
             disconnect(session, DisconnectReason.PROTOCOL_MISMATCH, "Unsupported compression algorithm");
             return;
@@ -380,7 +391,7 @@ public final class ServerSessionManager implements AutoCloseable {
             int initialChunkX = floorChunk(initial.x()), initialChunkZ = floorChunk(initial.z());
             session.interestCenterChanged(initial.dimension(), initialChunkX, initialChunkZ);
             this.chunks.updateInterest(session, initial.dimension(), initialChunkX, initialChunkZ,
-                    this.config.viewDistance(), 0, 0);
+                    this.config.viewDistance(), CHUNK_MESH_HALO, 0, 0);
             this.entities.updateInterest(session, initial.dimension(), initialChunkX, initialChunkZ,
                     this.config.viewDistance());
             this.events.post(new PlayerJoinEvent(session.identity(), session.entityId()));
@@ -421,7 +432,7 @@ public final class ServerSessionManager implements AutoCloseable {
         else if (packet instanceof CorePackets.ContainerOpenRequest) handleContainerOpenRequest(session, nowNanos);
         else if (packet instanceof CorePackets.RespawnRequest) handleRespawn(session);
         else if (packet instanceof CorePackets.ChunkBatchApplied applied) {
-            if (!this.chunks.acknowledge(session, applied.batchId())) {
+            if (!this.chunks.acknowledge(session, applied.batchId(), applied.leaseId())) {
                 throw new IllegalArgumentException("Unknown or duplicate chunk batch acknowledgement");
             }
         }
@@ -504,13 +515,10 @@ public final class ServerSessionManager implements AutoCloseable {
             base = this.world.applyPlayerAbility(session.identity(), session.entityId(), base,
                     ability.action(), this.serverTick);
         }
-        PlayerStateSnapshot next;
-        if (this.chunks.isCollisionAreaApplied(session, base.dimension(), base.x(), base.z())) {
-            next = this.world.applyPlayerInput(session.identity(), session.entityId(),
-                    base, input, this.serverTick);
-        } else {
-            next = pausedForStreaming(base, input, this.serverTick);
-        }
+        String movementDimension = base.dimension();
+        PlayerStateSnapshot next = this.world.applyPlayerInput(session.identity(), session.entityId(),
+                base, input, this.serverTick, (chunkX, chunkZ) ->
+                        this.chunks.isApplied(session, movementDimension, chunkX, chunkZ));
         if (next.lastProcessedInputSequence() != input.sequence() || next.serverTick() != this.serverTick) {
             throw new IllegalStateException("World returned inconsistent authoritative player state");
         }
@@ -523,23 +531,25 @@ public final class ServerSessionManager implements AutoCloseable {
         session.sendPlayerState(next);
         syncInventoryIfDirty(session);
         int chunkX = floorChunk(next.x()), chunkZ = floorChunk(next.z());
+        double streamYaw = Math.toRadians(input.yaw());
+        float streamX = (float) (input.forward() * Math.sin(streamYaw) + input.strafe() * Math.cos(streamYaw));
+        float streamZ = (float) (-input.forward() * Math.cos(streamYaw) + input.strafe() * Math.sin(streamYaw));
+        if (streamX * streamX + streamZ * streamZ < 1.0E-4F) {
+            streamX = (float) next.velocityX();
+            streamZ = (float) next.velocityZ();
+        }
         if (session.interestCenterChanged(next.dimension(), chunkX, chunkZ)) {
             this.chunks.updateInterest(session, next.dimension(), chunkX, chunkZ,
-                    this.config.viewDistance(), (float) next.velocityX(), (float) next.velocityZ());
+                    this.config.viewDistance(), CHUNK_MESH_HALO, streamX, streamZ);
             this.entities.updateInterest(session, next.dimension(), chunkX, chunkZ,
                     this.config.viewDistance());
+        } else {
+            this.chunks.reprioritize(session, next.dimension(), chunkX, chunkZ,
+                    streamX, streamZ);
         }
         } finally {
             this.profiler.end(ServerProfiler.Phase.PLAYER_SIMULATION);
         }
-    }
-
-    private static PlayerStateSnapshot pausedForStreaming(PlayerStateSnapshot base,
-                                                           PlayerInputFrame input, long serverTick) {
-        return new PlayerStateSnapshot(serverTick, input.sequence(), base.dimension(),
-                base.x(), base.y(), base.z(), 0, 0, 0, input.yaw(), input.pitch(), base.grounded(),
-                base.gameMode(), base.movementState(), base.health(), base.foodLevel(), base.saturation(),
-                base.selectedHotbarSlot(), base.vehicleEntityId(), base.spectatorFlySpeed());
     }
 
     /** Tick-thread-only authoritative game-mode change used by commands and development controls. */
@@ -740,7 +750,7 @@ public final class ServerSessionManager implements AutoCloseable {
         int chunkX = floorChunk(next.x()), chunkZ = floorChunk(next.z());
         if (session.interestCenterChanged(next.dimension(), chunkX, chunkZ)) {
             this.chunks.updateInterest(session, next.dimension(), chunkX, chunkZ,
-                    this.config.viewDistance(), 0, 0);
+                    this.config.viewDistance(), CHUNK_MESH_HALO, 0, 0);
             this.entities.updateInterest(session, next.dimension(), chunkX, chunkZ,
                     this.config.viewDistance());
         }

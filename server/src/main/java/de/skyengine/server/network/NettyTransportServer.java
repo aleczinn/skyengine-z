@@ -21,7 +21,8 @@ import java.util.concurrent.Executors;
 
 public final class NettyTransportServer implements AutoCloseable {
     private final EventLoopGroup boss = new NioEventLoopGroup(1);
-    private final EventLoopGroup workers = new NioEventLoopGroup();
+    private final EventLoopGroup workers = new NioEventLoopGroup(
+            Math.min(4, Math.max(2, Runtime.getRuntime().availableProcessors() / 8)));
     private final PacketRegistry registry;
     private final Consumer<NettyTransportConnection> acceptor;
     private final int maximumFrameBytes;

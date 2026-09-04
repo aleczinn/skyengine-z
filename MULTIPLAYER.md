@@ -90,8 +90,10 @@ Chunk-Batches werden für TCP pro Verbindung in einer seriellen Worker-Queue kod
 Zstd-komprimiert. Die Tick-Thread-Reihenfolge `ChunkBatchStart -> ChunkColumnData -> ChunkBatchEnd`
 bleibt dabei erhalten; der Tick-Thread wartet jedoch weder auf Encoding noch auf Kompression. Die
 fertigen Frames landen in begrenzten Channel-Queues und werden mit einem konfigurierbaren
-`chunk-bytes-per-second`-Budget geflusht. `LocalTransport` übernimmt dieselben atomaren Batches
-direkt und ohne den Encode-/Decode-Umweg.
+`chunk-bytes-per-second`-Budget geflusht. Der Tick vergibt dabei nur Bandbreitenkredit; Netty
+leert diesen unabhängig von 20 TPS bei jeder erneuten Socket-Schreibbarkeit weiter. Lokale
+TCP-Verbindungen werden unkomprimiert mit 128 MiB/s bedient. `LocalTransport` übernimmt dieselben
+atomaren Batches direkt und ohne den Encode-/Decode-Umweg.
 
 Pakete werden auf dem Network-I/O-Thread nur als begrenzte Frames angenommen. Decoding und jede
 State-Transition passieren beim Polling auf dem Client- beziehungsweise Server-Owner-Thread. Somit
@@ -118,7 +120,14 @@ und nicht versehentlich den Stand des vorherigen Ticks.
   führt einen Reverse-Index von Entity zu beobachtenden Sessions.
 - Chunkinteressen werden als Differenz zweier begrenzter View-Bereiche gebildet. Snapshots werden
   priorisiert (Nähe, danach Bewegungsrichtung), asynchron angefordert und nur auf dem Tick-Thread
-  veröffentlicht. Veraltete, nach einem Interest-Wechsel fertiggestellte Jobs werden verworfen.
+  veröffentlicht. Um den sichtbaren Kreis liegt seine exakte Chebyshev-Dilatation um eine Spalte:
+  damit besitzt auch jeder Randchunk alle acht realen Meshing-Nachbarn. Veraltete, nach einem
+  Interest-Wechsel fertiggestellte Jobs werden server- und clientseitig über Interest-/Receive-
+  Generationen verworfen; ein alter Async-Decode kann keinen entladenen Chunk wieder einsetzen.
+- Der Integrated Server verwendet einen gemeinsamen adaptiven CPU-Pool mit
+  `availableProcessors - 4` Workern. Worldgen, Licht, Snapshot-Aufbau, Client-Decode und Meshing
+  greifen auf dieses eine priorisierte Budget zu; es gibt keine feste Server-/Client-Aufteilung.
+  Dedicated Server und Remote-Clients behalten dagegen jeweils ihren eigenen Pool.
 - Leere Sections werden nicht übertragen. Paletten, BitStorage-Wörter, Biome-IDs, 33×33-Tintgrids,
   Heightmap und uniform/nibble-gepacktes Sky-/Blocklicht bleiben explizite Snapshotbestandteile.
 
@@ -127,8 +136,23 @@ Weltobjekt-Leak auf genau dieses unveränderliche Netzwerkformat ab. Palette und
 nicht neu interpretiert; Worker dürfen den fertigen Snapshot anschließend gefahrlos komprimieren.
 Die inverse `LegacyChunkSnapshotDecoder`-Brücke installiert Palette, gepackte Indizes, Heightmap,
 33×33-Tints sowie uniformes oder nibble-gepacktes Licht direkt in die vorhandene L0-Repräsentation.
-Ein replizierter 3×3-Nachbarschaftsring verwendet danach unverändert `ChunkMesher`, Uploadqueues
-und die bestehenden Section-Grenzregeln; es gibt keinen zweiten Multiplayer-Terrainmesher.
+Protokollversion 11 kodiert Biome als VarInt, Tints als RGB24 und Heightmap-Werte als unsigned
+short; übliche Spalten bleiben durch 512-KiB-Fragmente in einem Datenframe. Beim Remote-Decode
+werden Registry-IDs bereits während des Parsens gemappt, statt den vollständigen Snapshot danach
+noch einmal zu kopieren. Decode und Validierung laufen auf dem Worker-Pool; nur die fertige
+Installation erfolgt auf dem Client-Owner-Thread. Der Batch wird erst danach bestätigt. Jede
+Interest-Belegung einer Chunkkoordinate besitzt eine monotone Lease-ID. Dadurch kann ein
+`UnloadChunk` veraltete, bereits kodierende TCP-Batches überholen, ohne dass deren spätes Ergebnis
+den Chunk wieder einsetzt. Noch nicht kodierende Batches werden beim Verlassen des Interests
+abgebrochen; zugleich begrenzt ein kleines ACK-Fenster den nicht mehr abbrechbaren Vorlauf.
+
+Ein replizierter Chunk verwendet den unveränderten `ChunkMesher` ausschließlich mit einem
+vollständigen realen 3×3-Nachbarschaftsring. Fertig hochgeladene Chunks treten in eine stabile,
+zusammenhängende Präsentationsmenge ein und bleiben bis zum autoritativen Unload sichtbar. Ein
+noch fehlender Chunk am neuen Spieleranker kann deshalb niemals den bereits dargestellten Radius
+auf null zusammenklappen. Bei sehr schneller Reise darf der fertig vorbereitete neue Anker eine
+zweite Komponente beginnen, an die weitere Chunks schrittweise anschließen. Es gibt keinen zweiten
+Multiplayer-Terrainmesher und keinen späteren Voll-Remesh nur wegen nachgeladener Nachbarn.
 
 Die Remote-Ansicht sendet pro Clienttick `PlayerInputFrame` mit Achsen, Tasten, Blickrichtung und
 monotoner Sequenz. Bei geöffnetem GUI werden neutrale Eingaben gesendet, damit Keepalive und
@@ -158,7 +182,8 @@ ist ebenfalls serverautoritativ und Bestandteil von Prediction und Reconciliatio
 - Keepalive unabhängig von Movement, RTT, Timeout und strukturierte Disconnectgründe;
 - die Dedicated-Server-Konsole meldet Weltpfad/Seed sowie Login, Join, Leave und Kick mit
   Spielername, Identität und Disconnectgrund;
-- `net` in der Serverkonsole zeigt Paket-/Bytezähler, Queues, RTT und getrackte Chunks;
+- `net` in der Serverkonsole zeigt Paket-/Bytezähler, Queues, RTT, getrackte Chunks sowie
+  aktive/gesamte World-Worker und deren Warteschlange;
 - die Kommandos `list`, `tps`/`perf`, `net`, `kick` und `stop` verwenden für Konsole und
   Netzwerkclients denselben Dispatcher; privilegierte Kommandos bleiben der Konsole vorbehalten;
 - der Netzwerk-Snapshot enthält zusätzlich Anzahl, Pakete und CPU-Zeit der asynchron kodierten
@@ -203,6 +228,12 @@ dahinter inzwischen dieselben `World`-, `Dimension`-, Generator-, Feature-, Stru
 `EntityPlayer`-, BlockShape-, Chunk-Simulations-, Registry- und Persistenzsysteme wie der bisherige
 Singleplayer. Es existiert kein vereinfachter Multiplayer-Generator und keine zweite
 Terrainkollision mehr.
+
+Pro Dimension existiert serverseitig genau ein gemeinsamer autoritativer `ChunkManager` mit einer
+gemeinsamen Map geladener Chunks. Spieler besitzen keine eigenen Chunkkopien auf dem Server;
+`ChunkInterestManager` und `ChunkReplicationService` halten pro Session nur Koordinatenmengen,
+Prioritäten und Übertragungszustände. Erst auf jedem Client liegt zusätzlich ein nicht
+autoritativer replizierter Chunkcache für Rendering, Prediction, Kollision und Raycasting.
 
 Serverautoritativ repliziert werden insbesondere normale L0-Chunks samt Biomen und Licht,
 Blockänderungen und BlockEntities, Spielerzustand und Inventar, Container/Crafting, Items,

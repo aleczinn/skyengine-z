@@ -18,9 +18,37 @@ import de.skyengine.shared.world.ChunkSectionSnapshot;
 import de.skyengine.shared.world.LightPlane;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class NettyTransportConnectionTest {
+    @Test void bandwidthCreditDrainsFramesThatFinishEncodingLater() throws Exception {
+        var registry = CoreProtocol.createRegistry();
+        EmbeddedChannel channel = new EmbeddedChannel();
+        List<Runnable> encoderTasks = new ArrayList<>();
+        NettyTransportConnection connection = new NettyTransportConnection(channel, registry, true,
+                encoderTasks::add);
+        advanceToPlay(connection);
+        UUID sender = UUID.randomUUID();
+        assertTrue(connection.sendBatch(List.of(new PacketEnvelope(
+                new CorePackets.ChatMessage(sender, "test", 1, "late")))));
+
+        // The server tick grants credit before the asynchronous encoder has produced a frame.
+        connection.flushOutbound(64 * 1024);
+        encoderTasks.removeFirst().run();
+        channel.runPendingTasks();
+
+        ByteBuf framed = channel.readOutbound();
+        byte[] bytes = new byte[framed.readableBytes()];
+        framed.readBytes(bytes).release();
+        CorePackets.ChatMessage decoded = (CorePackets.ChatMessage) registry.decode(
+                PacketDirection.SERVER_TO_CLIENT, ConnectionState.PLAY,
+                ProtocolFraming.unframe(bytes)).packet();
+        assertEquals("late", decoded.message());
+        connection.close();
+        channel.finishAndReleaseAll();
+    }
+
     @Test void batchEncodingRunsOffCallerAndPreservesPacketOrder() throws Exception {
         var registry = CoreProtocol.createRegistry();
         EmbeddedChannel channel = new EmbeddedChannel();
@@ -62,7 +90,7 @@ class NettyTransportConnectionTest {
         advanceToPlay(connection);
         ChunkColumnSnapshot chunk = largeChunk();
         assertTrue(connection.sendBatch(List.of(
-                new PacketEnvelope(new CorePackets.ChunkBatchStart(3, chunk.dimension(), 0, 0, 1)),
+                new PacketEnvelope(new CorePackets.ChunkBatchStart(3, 1, chunk.dimension(), 0, 0, 1)),
                 new PacketEnvelope(new CorePackets.ChunkColumnData(3, chunk)),
                 new PacketEnvelope(new CorePackets.ChunkBatchEnd(3)))));
         encoderTasks.removeFirst().run();
@@ -88,10 +116,65 @@ class NettyTransportConnectionTest {
         channel.finishAndReleaseAll();
     }
 
+    @Test void leaseTaggedUnloadBypassesAnObsoleteBatchWithoutResurrectionRisk() throws Exception {
+        var registry = CoreProtocol.createRegistry();
+        EmbeddedChannel channel = new EmbeddedChannel();
+        List<Runnable> encoderTasks = new ArrayList<>();
+        NettyTransportConnection connection = new NettyTransportConnection(channel, registry, true,
+                encoderTasks::add);
+        advanceToPlay(connection);
+        ChunkColumnSnapshot chunk = largeChunk();
+        assertTrue(connection.sendBatch(List.of(
+                new PacketEnvelope(new CorePackets.ChunkBatchStart(4, 2, chunk.dimension(), 0, 0, 1)),
+                new PacketEnvelope(new CorePackets.ChunkColumnData(4, chunk)),
+                new PacketEnvelope(new CorePackets.ChunkBatchEnd(4)))));
+        assertTrue(connection.send(new PacketEnvelope(
+                new CorePackets.UnloadChunk(2, chunk.dimension(), 0, 0))));
+
+        assertEquals(1, encoderTasks.size());
+        encoderTasks.removeFirst().run();
+        List<Object> decoded = new ArrayList<>();
+        for (int flush = 0; flush < 16 && connection.outboundSize() > 0; flush++) {
+            connection.flushOutbound(8 * 1024 * 1024);
+            ByteBuf framed;
+            while ((framed = channel.readOutbound()) != null) {
+                byte[] bytes = new byte[framed.readableBytes()];
+                framed.readBytes(bytes).release();
+                decoded.add(registry.decode(PacketDirection.SERVER_TO_CLIENT, ConnectionState.PLAY,
+                        ProtocolFraming.unframe(bytes)).packet());
+            }
+        }
+        assertTrue(decoded.getFirst() instanceof CorePackets.UnloadChunk);
+        assertTrue(decoded.stream().anyMatch(CorePackets.ChunkBatchEnd.class::isInstance));
+        connection.close();
+        channel.finishAndReleaseAll();
+    }
+
+    @Test void queuedChunkBatchCanBeCancelledBeforeEncodingStarts() {
+        var registry = CoreProtocol.createRegistry();
+        EmbeddedChannel channel = new EmbeddedChannel();
+        List<Runnable> encoderTasks = new ArrayList<>();
+        NettyTransportConnection connection = new NettyTransportConnection(channel, registry, true,
+                encoderTasks::add);
+        advanceToPlay(connection);
+        ChunkColumnSnapshot chunk = largeChunk();
+        assertTrue(connection.sendBatch(List.of(
+                new PacketEnvelope(new CorePackets.ChunkBatchStart(5, 3, chunk.dimension(), 0, 0, 1)),
+                new PacketEnvelope(new CorePackets.ChunkColumnData(5, chunk)),
+                new PacketEnvelope(new CorePackets.ChunkBatchEnd(5)))));
+
+        assertTrue(connection.cancelBatch(5));
+        encoderTasks.removeFirst().run();
+        assertEquals(0, connection.outboundSize());
+        assertNull(channel.readOutbound());
+        connection.close();
+        channel.finishAndReleaseAll();
+    }
+
     private static ChunkColumnSnapshot largeChunk() {
         List<ChunkSectionSnapshot> sections = new ArrayList<>();
         byte[] light = new byte[LightPlane.PACKED_BYTES];
-        for (int sectionY = 0; sectionY < 4; sectionY++) {
+        for (int sectionY = 0; sectionY < 16; sectionY++) {
             sections.add(new ChunkSectionSnapshot(sectionY, ChunkSectionSnapshot.VOLUME,
                     new int[] {1}, 0, new long[0],
                     new LightPlane(LightPlane.Mode.PACKED_NIBBLES, light),

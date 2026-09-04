@@ -18,6 +18,7 @@ public final class World implements IDisposable {
     private final WorldSaves.WorldSave save;
     private final File root;
     private final WorldWorkerPool workers;
+    private final boolean ownsWorkers;
     private final PortalLinks portalLinks;
     private final PlayerManager players;
     private final DimensionManager dimensions;
@@ -42,9 +43,22 @@ public final class World implements IDisposable {
     /** Server worlds pass their configured worker budget instead of silently using the host default. */
     public World(WorldSaves.WorldSave save, File root, WorldSoundSink soundManager,
                  boolean createLocalPlayer, int workerThreads) {
+        this(save, root, soundManager, createLocalPlayer,
+                new WorldWorkerPool(Math.max(1, workerThreads)), true);
+    }
+
+    /** Integrated Server und Client duerfen denselben CPU-Pool verwenden. */
+    public World(WorldSaves.WorldSave save, File root, WorldSoundSink soundManager,
+                 boolean createLocalPlayer, WorldWorkerPool workers) {
+        this(save, root, soundManager, createLocalPlayer, workers, false);
+    }
+
+    private World(WorldSaves.WorldSave save, File root, WorldSoundSink soundManager,
+                  boolean createLocalPlayer, WorldWorkerPool workers, boolean ownsWorkers) {
         this.save = save;
         this.root = root;
-        this.workers = new WorldWorkerPool(Math.max(1, workerThreads));
+        this.workers = java.util.Objects.requireNonNull(workers, "workers");
+        this.ownsWorkers = ownsWorkers;
         this.portalLinks = new PortalLinks(this.root);
         this.players = new PlayerManager(save, this.root,
                 () -> WorldSaves.saveInDirectory(save, this.root), createLocalPlayer);
@@ -147,7 +161,7 @@ public final class World implements IDisposable {
             this.dimensions.dispose();
             WorldSaves.saveInDirectory(this.save, this.root);
         } finally {
-            this.workers.dispose();
+            if (this.ownsWorkers) this.workers.dispose();
         }
     }
 }

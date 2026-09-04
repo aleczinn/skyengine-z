@@ -2,6 +2,7 @@ package de.skyengine.game.entity;
 
 import de.skyengine.game.Gamemode;
 import de.skyengine.game.physics.AABB;
+import de.skyengine.game.physics.ChunkMovementLimiter;
 import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.PlayerLocation;
 import de.skyengine.game.world.block.Identifier;
@@ -105,6 +106,7 @@ public class EntityPlayer extends Entity {
     /* Augenhöhe wird pro Tick Richtung Zielwert interpoliert (weiche Kamera beim Sneaken) */
     private float eyeHeight = EYE_HEIGHT_STANDING;
     private float lastEyeHeight = EYE_HEIGHT_STANDING;
+    private ChunkMovementLimiter.Availability movementAvailability = ChunkMovementLimiter.Availability.ALL;
 
     public EntityPlayer() {
         this(UUID.randomUUID());
@@ -143,6 +145,17 @@ public class EntityPlayer extends Entity {
     /**
      * Per-TICK movement (20 TPS). Deterministic - only reads the frozen input state.
      */
+    public void update(PlayerControls controls, Dimension world,
+                       ChunkMovementLimiter.Availability availability) {
+        ChunkMovementLimiter.Availability previous = this.movementAvailability;
+        this.movementAvailability = java.util.Objects.requireNonNull(availability, "availability");
+        try {
+            this.update(controls, world);
+        } finally {
+            this.movementAvailability = previous;
+        }
+    }
+
     public void update(PlayerControls controls, Dimension world) {
         super.update();
         this.landingDistanceThisTick = 0;
@@ -322,7 +335,7 @@ public class EntityPlayer extends Entity {
     private void travelSwimming(Dimension world, double forward, double strafe, boolean up, boolean lava, double depth) {
         this.moveRelative(strafe, forward, SWIM_ACCEL);
         double mx = this.motionX, mz = this.motionZ; // Bewegungsabsicht für den Kanten-Check
-        this.move(world, this.motionX, this.motionY, this.motionZ);
+        this.moveWithinAvailableChunks(world, this.motionX, this.motionY, this.motionZ);
 
         /* Heraussprung an der Kante (Vanilla): horizontal gegen ein Hindernis geschwommen und
            darüber (0.6 höher) ist Platz -> Aufwärts-Boost; wiederholt sich jeden Tick, solange
@@ -405,7 +418,7 @@ public class EntityPlayer extends Entity {
 
         /* Der Tempo-Faktor (Seelensand/Honig) steckt in Entity.move — dort, wo MC ihn auch
            anwendet, und damit für jede Entität statt nur für den Spieler. */
-        this.move(world, dx, dy, dz);
+        this.moveWithinAvailableChunks(world, dx, dy, dz);
 
         /* Gravitation & Reibung NACH dem Bewegen */
         this.motionY -= GRAVITY;
@@ -465,11 +478,22 @@ public class EntityPlayer extends Entity {
             this.motionY = -verticalSpeed;
         }
 
-        this.move(world, this.motionX, this.motionY, this.motionZ);
+        this.moveWithinAvailableChunks(world, this.motionX, this.motionY, this.motionZ);
 
         this.motionX *= FLY_DRAG;
         this.motionY *= FLY_DRAG_Y;
         this.motionZ *= FLY_DRAG;
+    }
+
+    private void moveWithinAvailableChunks(Dimension world, double dx, double dy, double dz) {
+        ChunkMovementLimiter.Movement limited = ChunkMovementLimiter.limit(
+                this.boundingBox, dx, dy, dz, this.movementAvailability);
+        boolean clippedX = limited.x() != dx;
+        boolean clippedZ = limited.z() != dz;
+        this.move(world, limited.x(), limited.y(), limited.z());
+        if (clippedX) this.motionX = 0;
+        if (clippedZ) this.motionZ = 0;
+        if (clippedX || clippedZ) this.horizontalCollision = true;
     }
 
     /**

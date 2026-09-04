@@ -77,6 +77,7 @@ import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.ChunkStatus;
 import de.skyengine.game.world.chunk.FluidGeometry;
+import de.skyengine.game.world.chunk.WorldWorkerPool;
 import de.skyengine.graphics.DebugFlags;
 import de.skyengine.graphics.FrameProfiler;
 import de.skyengine.graphics.PerformanceProfiler;
@@ -181,6 +182,8 @@ public class GameContainer implements IResizeable, IDisposable {
     /** Same predicted client gameplay for LocalTransport and TCP; only connect(...) differs. */
     private final ClientGameSession multiplayer = new ClientGameSession();
     private IntegratedServerHost integratedServer;
+    /** Nur Singleplayer: ein adaptives Budget fuer Server-Worldgen und Client-Meshing. */
+    private WorldWorkerPool integratedWorkers;
     private WorldSaves.WorldSave integratedSave;
     private RemoteWorldView remoteWorldView;
     private EntityPlayer remotePlayer;
@@ -461,8 +464,9 @@ public class GameContainer implements IResizeable, IDisposable {
             java.nio.file.Path worldDirectory = WorldSaves.dir(save.dirName()).toPath();
             ServerConfig config = ServerConfig.integrated(worldDirectory,
                     this.settings.renderDistance, this.settings.simulationDistance);
+            this.integratedWorkers = new WorldWorkerPool(config.workerThreads());
             this.integratedServer = new IntegratedServerHost(config,
-                    new AuthoritativeWorldRuntime(config, worldDirectory));
+                    new AuthoritativeWorldRuntime(config, worldDirectory, this.integratedWorkers));
             this.multiplayer.connect(this.integratedServer.clientConnection(),
                     System.getProperty("user.name", "Player"), identity);
         } catch (IOException | RuntimeException failure) {
@@ -513,7 +517,10 @@ public class GameContainer implements IResizeable, IDisposable {
                 && this.multiplayer.joinGame() != null && this.multiplayer.playerState() != null
                 && this.multiplayer.chunks() != null) {
             this.remoteWorldView = new RemoteWorldView(this.multiplayer.joinGame().dimension(),
-                    this.multiplayer.chunks(), this.atlas, this.blockEntityRenderers);
+                    this.multiplayer.chunks(), this.atlas, this.blockEntityRenderers,
+                    this.integratedWorkers);
+            this.remoteWorldView.setRenderDistance(Math.min(this.settings.renderDistance,
+                    this.multiplayer.joinGame().viewDistance()));
             this.remoteWorldView.setAuthoritativeChunkListener(this::reapplyRemoteBlockPredictions);
             PlayerStateSnapshot state = this.multiplayer.playerState();
             this.remotePlayer = new EntityPlayer(this.multiplayer.joinGame().identity());
@@ -533,6 +540,7 @@ public class GameContainer implements IResizeable, IDisposable {
             this.remoteCorrectionFrameNanos = System.nanoTime();
             this.remotePortalPresentation.reset();
         }
+        if (this.remoteWorldView != null) this.remoteWorldView.updatePreparedChunks();
         this.rebuildRemoteWorldForDimension();
         this.reconcileRemotePlayerState();
         if (this.remotePlayer != null && this.remotePlayer.isDead()
@@ -636,7 +644,9 @@ public class GameContainer implements IResizeable, IDisposable {
         this.soundManager.stopMinecartSounds();
         this.remoteWorldView.close();
         this.remoteWorldView = new RemoteWorldView(state.dimension(), this.multiplayer.chunks(), this.atlas,
-                this.blockEntityRenderers);
+                this.blockEntityRenderers, this.integratedWorkers);
+        this.remoteWorldView.setRenderDistance(Math.min(this.settings.renderDistance,
+                this.multiplayer.joinGame().viewDistance()));
         this.remoteWorldView.setAuthoritativeChunkListener(this::reapplyRemoteBlockPredictions);
         if (this.remotePlayer != null) {
             this.applyRemotePlayerState(state);
@@ -1017,7 +1027,7 @@ public class GameContainer implements IResizeable, IDisposable {
                     state.health(), state.foodLevel(), state.saturation(), input.selectedHotbarSlot(),
                     state.vehicleEntityId(), state.spectatorFlySpeed());
         }
-        if (this.remoteWorldView == null || !this.remoteWorldView.isPhysicsAreaReady(state.x(), state.z())) {
+        if (this.remoteWorldView == null) {
             return new PlayerStateSnapshot(state.serverTick() + 1, input.sequence(), state.dimension(),
                     state.x(), state.y(), state.z(), 0, 0, 0, input.yaw(), input.pitch(),
                     state.grounded(), state.gameMode(), state.movementState(), state.health(),
@@ -1039,15 +1049,7 @@ public class GameContainer implements IResizeable, IDisposable {
                 input.pressed(PlayerInputFrame.SPRINT),
                 input.pressed(PlayerInputFrame.SNEAK_TOGGLE_MODE),
                 input.pressed(PlayerInputFrame.SPRINT_TOGGLE_MODE)),
-                this.remoteWorldView.physicsDimension());
-        if (!this.remoteWorldView.isPhysicsAreaReady(player.x, player.z)) {
-            this.remoteWorldView.setPhysicsPlayer(this.remotePlayer);
-            return new PlayerStateSnapshot(state.serverTick() + 1, input.sequence(), state.dimension(),
-                    state.x(), state.y(), state.z(), 0, 0, 0, input.yaw(), input.pitch(),
-                    state.grounded(), state.gameMode(), state.movementState(), state.health(),
-                    state.foodLevel(), state.saturation(), input.selectedHotbarSlot(),
-                    state.vehicleEntityId(), state.spectatorFlySpeed());
-        }
+                this.remoteWorldView.physicsDimension(), this.remoteWorldView::isPhysicsChunkReady);
         this.remoteWorldView.setPhysicsPlayer(this.remotePlayer);
         return snapshotPredictedPlayer(player, state.serverTick() + 1, input.sequence(), state.vehicleEntityId());
     }
@@ -1513,7 +1515,13 @@ public class GameContainer implements IResizeable, IDisposable {
     private void closeIntegratedServer() {
         IntegratedServerHost host = this.integratedServer;
         this.integratedServer = null;
-        if (host != null) host.close();
+        try {
+            if (host != null) host.close();
+        } finally {
+            WorldWorkerPool workers = this.integratedWorkers;
+            this.integratedWorkers = null;
+            if (workers != null) workers.dispose();
+        }
     }
 
     public boolean hasRemoteWorldView() {
@@ -1633,6 +1641,9 @@ public class GameContainer implements IResizeable, IDisposable {
         if (this.dimension() != null) {
             this.dimension().getChunkManager().setRenderDistance(this.settings.renderDistance);
             this.dimension().setSimulationDistance(this.settings.simulationDistance);
+        } else if (this.remoteWorldView != null && this.multiplayer.joinGame() != null) {
+            this.remoteWorldView.setRenderDistance(Math.min(this.settings.renderDistance,
+                    this.multiplayer.joinGame().viewDistance()));
         }
         this.camera.setFov(this.settings.fov);
         this.camera.setFarPlane(this.computeFarPlane());

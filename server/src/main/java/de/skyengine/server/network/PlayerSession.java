@@ -135,6 +135,10 @@ public final class PlayerSession {
         return this.connection.remoteAddress() instanceof InetSocketAddress address
                 && address.getPort() == 0 && address.getAddress().isLoopbackAddress();
     }
+    boolean loopbackConnection() {
+        return this.connection.remoteAddress() instanceof InetSocketAddress address
+                && address.getAddress() != null && address.getAddress().isLoopbackAddress();
+    }
     boolean allowMovement(long nowNanos) { return this.movementLimit.tryConsume(1, nowNanos); }
     boolean allowGameplay(long nowNanos) { return this.gameplayLimit.tryConsume(1, nowNanos); }
     boolean allowInventory(long nowNanos) { return this.inventoryLimit.tryConsume(1, nowNanos); }
