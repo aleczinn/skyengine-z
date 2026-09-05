@@ -1,6 +1,7 @@
 package de.skyengine.game.world.block.behavior;
 
 import de.skyengine.game.world.Dimension;
+import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Properties;
@@ -253,6 +254,7 @@ final class FluidBehaviorSimulationTest {
     private static final class TestWorld extends Dimension {
         private static final Field CHUNKS_FIELD;
         private static final Field GAME_TIME_FIELD;
+        private static final Field ACTIVE_PLAYERS_FIELD;
         private static final Method TICK_SCHEDULED;
 
         static {
@@ -261,6 +263,8 @@ final class FluidBehaviorSimulationTest {
                 CHUNKS_FIELD.setAccessible(true);
                 GAME_TIME_FIELD = Dimension.class.getDeclaredField("gameTime");
                 GAME_TIME_FIELD.setAccessible(true);
+                ACTIVE_PLAYERS_FIELD = Dimension.class.getDeclaredField("activePlayers");
+                ACTIVE_PLAYERS_FIELD.setAccessible(true);
                 TICK_SCHEDULED = Dimension.class.getDeclaredMethod("tickScheduled");
                 TICK_SCHEDULED.setAccessible(true);
             } catch (ReflectiveOperationException e) {
@@ -277,6 +281,7 @@ final class FluidBehaviorSimulationTest {
 
         TestWorld() throws ReflectiveOperationException {
             super("__fluid_simulation_test", levelData(), null, null);
+            ACTIVE_PLAYERS_FIELD.set(this, List.of(new EntityPlayer()));
             Field field = Dimension.class.getDeclaredField("chunkManager");
             field.setAccessible(true);
             this.manager = (ChunkManager) field.get(this);

@@ -194,34 +194,99 @@ public final class CorePackets {
         @Override public byte[] metadata() { return this.metadata.clone(); }
     }
     public record EntityEvent(int networkId, int eventId, int data) implements Packet {}
-    public record ChunkBatchStart(long batchId, long leaseId, String dimension,
+    public record ChunkViewUpdate(String dimension, int centerChunkX, int centerChunkZ,
+                                  int viewDistance, int meshHalo, long epoch) implements Packet {
+        public ChunkViewUpdate {
+            Objects.requireNonNull(dimension);
+            if (viewDistance < 0 || viewDistance > 32 || meshHalo < 0 || meshHalo > 1 || epoch < 0) {
+                throw new IllegalArgumentException("Invalid chunk view");
+            }
+        }
+    }
+    public record ChunkBatchStart(long batchId, long leaseId, long viewEpoch, String dimension,
                                   int centerChunkX, int centerChunkZ, int chunkCount) implements Packet {
         public ChunkBatchStart {
             if (batchId < 0) throw new IllegalArgumentException("Negative chunk batch ID");
             if (leaseId < 0) throw new IllegalArgumentException("Negative chunk lease ID");
+            if (viewEpoch < 0) throw new IllegalArgumentException("Negative chunk view epoch");
             Objects.requireNonNull(dimension);
+        }
+        public ChunkBatchStart(long batchId, long leaseId, String dimension,
+                               int centerChunkX, int centerChunkZ, int chunkCount) {
+            this(batchId, leaseId, 0, dimension, centerChunkX, centerChunkZ, chunkCount);
         }
     }
     public record ChunkColumnData(long batchId, ChunkColumnSnapshot chunk) implements Packet {}
     /** Bounded transport fragment of a canonical ChunkColumnSnapshot payload. */
-    public record ChunkColumnFragment(long batchId, int fragmentIndex, int fragmentCount,
-                                      int totalLength, byte[] data) implements Packet {
+    public static final class ChunkColumnFragment implements Packet {
         /* Large enough for the common complete column to stay in one frame, still well below
            the protocol's 2 MiB frame ceiling. Fewer fragments mean fewer array copies and
            fewer per-packet queue/codec operations during the initial L0 burst. */
         public static final int MAX_FRAGMENT_BYTES = 512 * 1024;
-        public ChunkColumnFragment {
-            data = data == null ? new byte[0] : data.clone();
+        private final long batchId;
+        private final int fragmentIndex;
+        private final int fragmentCount;
+        private final int totalLength;
+        private final int decodedLength;
+        private final de.skyengine.shared.world.ImmutableByteArray data;
+
+        public ChunkColumnFragment(long batchId, int fragmentIndex, int fragmentCount,
+                                   int totalLength, byte[] data) {
+            this(batchId, fragmentIndex, fragmentCount, totalLength, 0,
+                    de.skyengine.shared.world.ImmutableByteArray.copyOf(
+                            data == null ? new byte[0] : data));
+        }
+
+        private ChunkColumnFragment(long batchId, int fragmentIndex, int fragmentCount,
+                                    int totalLength, int decodedLength,
+                                    de.skyengine.shared.world.ImmutableByteArray data) {
             if (batchId < 0 || fragmentIndex < 0 || fragmentCount < 1 || fragmentCount > 256
                     || fragmentIndex >= fragmentCount || totalLength < 1
                     || totalLength > de.skyengine.shared.network.ProtocolLimits.MAX_DECOMPRESSED_BYTES
-                    || data.length < 1 || data.length > MAX_FRAGMENT_BYTES) {
+                    || decodedLength < 0
+                    || decodedLength > de.skyengine.shared.network.ProtocolLimits.MAX_DECOMPRESSED_BYTES
+                    || data.length() < 1 || data.length() > MAX_FRAGMENT_BYTES) {
                 throw new IllegalArgumentException("Invalid chunk fragment");
             }
+            this.batchId = batchId;
+            this.fragmentIndex = fragmentIndex;
+            this.fragmentCount = fragmentCount;
+            this.totalLength = totalLength;
+            this.decodedLength = decodedLength;
+            this.data = data;
         }
-        @Override public byte[] data() { return this.data.clone(); }
+
+        public static ChunkColumnFragment takeOwnership(long batchId, int fragmentIndex,
+                                                        int fragmentCount, int totalLength,
+                                                        byte[] data) {
+            return takeOwnership(batchId, fragmentIndex, fragmentCount, totalLength, 0, data);
+        }
+
+        public static ChunkColumnFragment takeOwnership(long batchId, int fragmentIndex,
+                                                        int fragmentCount, int totalLength,
+                                                        int decodedLength, byte[] data) {
+            return new ChunkColumnFragment(batchId, fragmentIndex, fragmentCount, totalLength, decodedLength,
+                    de.skyengine.shared.world.ImmutableByteArray.takeOwnership(data));
+        }
+
+        /** Shares an already immutable payload slice without manufacturing an intermediate array. */
+        public static ChunkColumnFragment shared(long batchId, int fragmentIndex,
+                                                 int fragmentCount, int totalLength,
+                                                 int decodedLength,
+                                                 de.skyengine.shared.world.ImmutableByteArray data) {
+            return new ChunkColumnFragment(batchId, fragmentIndex, fragmentCount, totalLength,
+                    decodedLength, java.util.Objects.requireNonNull(data));
+        }
+
+        public long batchId() { return this.batchId; }
+        public int fragmentIndex() { return this.fragmentIndex; }
+        public int fragmentCount() { return this.fragmentCount; }
+        public int totalLength() { return this.totalLength; }
+        public int decodedLength() { return this.decodedLength; }
+        public byte[] data() { return this.data.copy(); }
+        public de.skyengine.shared.world.ImmutableByteArray dataPayload() { return this.data; }
         public java.nio.ByteBuffer dataView() {
-            return java.nio.ByteBuffer.wrap(this.data).asReadOnlyBuffer();
+            return this.data.readOnlyView();
         }
     }
     public record ChunkBatchEnd(long batchId) implements Packet {}

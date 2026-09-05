@@ -10,6 +10,7 @@ import de.skyengine.game.world.chunk.ChunkStatus;
 import de.skyengine.shared.network.ProtocolException;
 import de.skyengine.shared.world.BlockChange;
 import de.skyengine.shared.world.ChunkColumnSnapshot;
+import de.skyengine.graphics.PerformanceProfiler;
 
 import java.util.List;
 import java.util.Objects;
@@ -21,7 +22,7 @@ import java.util.function.BiConsumer;
 
 /** Owner-thread bridge from network L0 snapshots to the existing chunk mesher/renderer input. */
 public final class ReplicatedChunkWorldAdapter implements ReplicatedChunkCache.Listener {
-    private record Prepared(ChunkColumnSnapshot snapshot, Chunk chunk, Throwable failure,
+    private record Prepared(ChunkColumnSnapshot snapshot, Chunk chunk, boolean visible, Throwable failure,
                             CompletableFuture<Void> completion) { }
     private final String dimension;
     private final ChunkManager chunks;
@@ -59,21 +60,30 @@ public final class ReplicatedChunkWorldAdapter implements ReplicatedChunkCache.L
 
     @Override
     public CompletionStage<Void> chunkLoadedAsync(ChunkColumnSnapshot snapshot) {
+        return chunkLoadedAsync(snapshot, true);
+    }
+
+    @Override
+    public CompletionStage<Void> chunkLoadedAsync(ChunkColumnSnapshot snapshot, boolean visible) {
         if (!this.dimension.equals(snapshot.dimension())) return CompletableFuture.completedFuture(null);
         CompletableFuture<Void> completion = new CompletableFuture<>();
         long key = Chunk.key(snapshot.chunkX(), snapshot.chunkZ());
         this.latestPreparations.put(key, snapshot);
         Chunk payloadDecoded = this.payloadDecodedChunks.remove(snapshot);
         if (payloadDecoded != null) {
-            this.prepared.add(new Prepared(snapshot, payloadDecoded, null, completion));
+            this.prepared.add(new Prepared(snapshot, payloadDecoded, visible, null, completion));
             return completion;
         }
         this.chunks.prepareReplicatedChunk(() -> {
+            long started = PerformanceProfiler.get().begin();
             try {
                 Chunk decoded = LegacyChunkSnapshotDecoder.decode(snapshot, this.world);
-                this.prepared.add(new Prepared(snapshot, decoded, null, completion));
+                this.prepared.add(new Prepared(snapshot, decoded, visible, null, completion));
             } catch (Throwable failure) {
-                this.prepared.add(new Prepared(snapshot, null, failure, completion));
+                this.prepared.add(new Prepared(snapshot, null, visible, failure, completion));
+            } finally {
+                PerformanceProfiler.get().recordElapsed(
+                        PerformanceProfiler.WorkerSection.L0_REMOTE_DECODE, started);
             }
         });
         return completion;
@@ -84,6 +94,7 @@ public final class ReplicatedChunkWorldAdapter implements ReplicatedChunkCache.L
             byte[] payload, java.util.function.IntUnaryOperator blockStateMapper) {
         CompletableFuture<ChunkColumnSnapshot> completion = new CompletableFuture<>();
         this.chunks.prepareReplicatedChunk(() -> {
+            long started = PerformanceProfiler.get().begin();
             try {
                 ChunkColumnSnapshot snapshot = de.skyengine.shared.network.CoreProtocol
                         .decodeChunkSnapshot(payload, blockStateMapper);
@@ -92,6 +103,9 @@ public final class ReplicatedChunkWorldAdapter implements ReplicatedChunkCache.L
                 completion.complete(snapshot);
             } catch (Throwable failure) {
                 completion.completeExceptionally(failure);
+            } finally {
+                PerformanceProfiler.get().recordElapsed(
+                        PerformanceProfiler.WorkerSection.L0_REMOTE_DECODE, started);
             }
         });
         return completion;
@@ -100,6 +114,7 @@ public final class ReplicatedChunkWorldAdapter implements ReplicatedChunkCache.L
     @Override
     public void discardDecodedChunk(ChunkColumnSnapshot snapshot) {
         this.payloadDecodedChunks.remove(snapshot);
+        this.latestPreparations.remove(Chunk.key(snapshot.chunkX(), snapshot.chunkZ()), snapshot);
     }
 
     /** Uebernimmt fertige CPU-Decodes ausschliesslich auf dem Client-Owner-Thread. */
@@ -112,10 +127,13 @@ public final class ReplicatedChunkWorldAdapter implements ReplicatedChunkCache.L
             }
             long key = Chunk.key(result.snapshot().chunkX(), result.snapshot().chunkZ());
             if (this.latestPreparations.get(key) == result.snapshot()) {
+                long started = PerformanceProfiler.get().begin();
                 this.latestPreparations.remove(key, result.snapshot());
-                this.chunks.installReplicatedChunk(result.chunk());
+                this.chunks.installReplicatedChunk(result.chunk(), result.visible());
                 this.authoritativeUpdateListener.accept(
                         result.snapshot().chunkX(), result.snapshot().chunkZ());
+                PerformanceProfiler.get().recordElapsed(
+                        PerformanceProfiler.WorkerSection.L0_CLIENT_INSTALL, started);
             }
             result.completion().complete(null);
         }
@@ -153,14 +171,36 @@ public final class ReplicatedChunkWorldAdapter implements ReplicatedChunkCache.L
         if (this.world == null) {
             for (BlockChange change : changes) markGeometryDirty(chunkX, chunkZ, change);
         }
-        this.authoritativeUpdateListener.accept(chunkX, chunkZ);
+    }
+
+    @Override
+    public void chunkVisibilityChanged(String dimension, int chunkX, int chunkZ, boolean visible) {
+        if (this.dimension.equals(dimension)) {
+            this.chunks.setReplicatedChunkVisible(chunkX, chunkZ, visible);
+        }
     }
 
     @Override public ChunkColumnSnapshot snapshotAfterBlockChanges(ChunkColumnSnapshot previous,
-                                                                   long revision) {
-        Chunk chunk = this.chunks.getChunk(previous.chunkX(), previous.chunkZ());
-        return chunk == null ? null
-                : LegacyChunkSnapshotEncoder.encodeReplicated(previous, chunk, revision);
+                                                                   long revision,
+                                                                   List<BlockChange> changes) {
+        /* The mutable render/collision chunk may contain optimistic local edits. Advance the
+           confirmed basis only from its previous immutable revision and the server delta. */
+        de.skyengine.graphics.PerformanceProfiler profiler =
+                de.skyengine.graphics.PerformanceProfiler.get();
+        long started = profiler.begin();
+        ChunkColumnSnapshot confirmed;
+        try {
+            confirmed = LegacyChunkSnapshotEncoder.applyConfirmedBlockChanges(
+                    previous, revision, changes);
+        } finally {
+            profiler.recordElapsed(
+                    de.skyengine.graphics.PerformanceProfiler.WorkerSection.L0_CLIENT_DELTA_COW,
+                    started);
+        }
+        profiler.add(de.skyengine.graphics.PerformanceProfiler.Counter.L0_CLIENT_DELTA_COW_BYTES,
+                confirmed.newlyAllocatedBytesComparedTo(previous));
+        this.authoritativeUpdateListener.accept(previous.chunkX(), previous.chunkZ());
+        return confirmed;
     }
 
     @Override public void blockEntityChanged(String dimension, int chunkX, int chunkZ,

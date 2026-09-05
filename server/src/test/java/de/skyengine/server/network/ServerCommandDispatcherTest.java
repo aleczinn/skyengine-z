@@ -34,6 +34,9 @@ class ServerCommandDispatcherTest {
             assertTrue(server.commands().execute("list", null).success());
             assertTrue(server.commands().execute("perf", null).success());
             assertTrue(server.commands().execute("net", remote).success());
+            assertTrue(server.commands().execute("profile start", null).success());
+            assertTrue(server.commands().execute("profile", null).success());
+            assertTrue(server.commands().execute("profile stop", null).success());
             assertFalse(server.commands().execute("stop", remote).success());
             assertFalse(server.stopRequested());
 

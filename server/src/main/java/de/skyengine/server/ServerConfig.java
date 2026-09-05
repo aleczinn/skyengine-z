@@ -65,12 +65,19 @@ public record ServerConfig(
     public InetSocketAddress listenAddress() { return new InetSocketAddress(this.bindAddress, this.serverPort); }
     public Path worldDirectory() { return this.serverDirectory.resolve("worlds").resolve(this.world).normalize(); }
 
+    /** Shared logical/encoded/compressed replication cache ceiling. */
+    public long replicationCacheBudgetBytes() {
+        long automatic = Math.min(128L * 1024 * 1024,
+                Math.max(16L * 1024 * 1024, Runtime.getRuntime().maxMemory() / 32));
+        return Math.max(0, Long.getLong("skyengine.replication-cache-bytes", automatic));
+    }
+
     /** Laufzeitkonfiguration fuer einen im Clientprozess gehosteten Server. */
     public static ServerConfig integrated(Path worldDirectory, int viewDistance, int simulationDistance) {
         Path directory = worldDirectory.toAbsolutePath().normalize();
-        // Ein gemeinsamer Pool versorgt Worldgen, Snapshot-Aufbau und Client-Meshing. Vier
+        // Ein gemeinsamer Pool versorgt Worldgen, Snapshot-Aufbau und Client-Meshing. Zwei
         // logische CPUs bleiben fuer Render-, Tick-, Netzwerk-, Audio- und Betriebssystemthreads.
-        int workers = Math.max(2, Runtime.getRuntime().availableProcessors() - 4);
+        int workers = Math.max(2, Runtime.getRuntime().availableProcessors() - 2);
         return new ServerConfig(directory.getParent(), "127.0.0.1", 25565, 1,
                 viewDistance, Math.min(simulationDistance, viewDistance), directory.getFileName().toString(),
                 "Integrierter SkyEngine-Server", EngineInfo.TICKS_PER_SECOND, 5, 30,
@@ -133,11 +140,10 @@ public record ServerConfig(
         p.setProperty("chunk-bytes-per-second", Integer.toString(4 * 1024 * 1024));
         p.setProperty("autosave-interval-ticks", "1200");
         p.setProperty("authentication", "offline");
-        /* A dedicated server commonly shares the same development workstation with one
-           rendering client. Reserve roughly three eighths of the logical CPUs for that client,
-           Netty and packet encoding. Production hosts can raise this explicit setting. */
+        /* Tick, Netty event loops and region IO remain separate owner threads. Every other
+           CPU-heavy server stage shares this work-conserving pool. */
         p.setProperty("worker-threads", Integer.toString(Math.max(2,
-                Runtime.getRuntime().availableProcessors() * 5 / 8)));
+                Runtime.getRuntime().availableProcessors() - 2)));
         return p;
     }
 

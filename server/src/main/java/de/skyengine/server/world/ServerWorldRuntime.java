@@ -21,11 +21,20 @@ import java.util.List;
 
 /** Tick-owned world boundary. The existing world implementation is migrated behind this interface. */
 public interface ServerWorldRuntime extends AutoCloseable {
-    record WorkerStats(int workers, int active, int queued) { }
+    record WorkerLaneStats(int lane, int queued, int running, long completed,
+                           long oldestQueuedAgeNanos, long queueWaitMedianNanos,
+                           long queueWaitP95Nanos, double completedPerSecond) { }
+    record WorkerStats(int workers, int active, int queued, List<WorkerLaneStats> lanes) {
+        public WorkerStats { lanes = List.copyOf(lanes); }
+        public WorkerStats(int workers, int active, int queued) { this(workers, active, queued, List.of()); }
+    }
     Path directory();
     void tick(long serverTick);
     void autosave(long serverTick);
     default WorkerStats workerStats() { return new WorkerStats(0, 0, 0); }
+    /** Last tick-owned count of resident authoritative chunks in player-relevant dimensions. */
+    default int residentChunkCount() { return 0; }
+    default ReplicationCacheBudget replicationCacheBudget() { return null; }
     /** Required pack manifest advertised before registry synchronization. */
     default List<PackDescriptor> packManifest() { return List.of(); }
     /** Ordered runtime IDs. Implementations must keep each identifier list in network-ID order. */

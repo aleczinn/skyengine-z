@@ -74,6 +74,8 @@ final class ChunkMesherFullCubeProfileTest {
         boolean previous = GameSettings.get().ambientOcclusion;
         try {
             GameSettings.get().ambientOcclusion = false;
+            ChunkMesher.configure(false, GameSettings.get().leavesQuality
+                    == GameSettings.LeavesQuality.LOW);
             Chunk chunk = new Chunk(0, 0);
             chunk.setBlock(8, 10, 8, Blocks.STONE);
             RecordingProfile profile = new RecordingProfile();
@@ -87,6 +89,8 @@ final class ChunkMesherFullCubeProfileTest {
                     ChunkMesher.FullCubePhase.CORNER_AO_SAMPLING));
         } finally {
             GameSettings.get().ambientOcclusion = previous;
+            ChunkMesher.configure(previous, GameSettings.get().leavesQuality
+                    == GameSettings.LeavesQuality.LOW);
         }
     }
 

@@ -58,6 +58,8 @@ public final class ClientNetworkSession {
         default void entityEvent(CorePackets.EntityEvent event) {}
         default void chatMessage(CorePackets.ChatMessage message) {}
         default void commandResult(CorePackets.CommandResult result) {}
+        /** Observability hook fired only after the batch was atomically installed and ACKed. */
+        default void chunkBatchApplied(ReplicatedChunkCache.AppliedBatch batch) {}
     }
 
     private final TransportConnection connection;
@@ -121,6 +123,7 @@ public final class ClientNetworkSession {
     private void acknowledgePreparedChunkBatches() throws ProtocolException {
         for (ReplicatedChunkCache.AppliedBatch batch : this.chunks.drainCompletedBatchIds()) {
             sendPlay(new CorePackets.ChunkBatchApplied(batch.batchId(), batch.leaseId()));
+            this.listener.chunkBatchApplied(batch);
         }
     }
 
@@ -279,7 +282,8 @@ public final class ClientNetworkSession {
         else if (packet instanceof CorePackets.EntityMetadata metadata) this.entities.metadata(metadata);
         else if (packet instanceof CorePackets.EntityDespawn despawn) this.entities.despawn(despawn);
         else if (packet instanceof CorePackets.EntityEvent event) this.listener.entityEvent(event);
-        else if (packet instanceof CorePackets.ChunkBatchStart
+        else if (packet instanceof CorePackets.ChunkViewUpdate
+                || packet instanceof CorePackets.ChunkBatchStart
                 || packet instanceof CorePackets.ChunkColumnData
                 || packet instanceof CorePackets.ChunkColumnFragment
                 || packet instanceof CorePackets.ChunkBatchEnd

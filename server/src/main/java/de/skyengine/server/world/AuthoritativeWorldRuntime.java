@@ -105,7 +105,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * around that authoritative state.
  */
 public final class AuthoritativeWorldRuntime implements ServerWorldRuntime {
-    private static final int NETWORK_LOAD_HALO = 2;
+    private static final int CLIENT_MESH_HALO = 1;
     private static final int MAX_SNAPSHOT_SUBMITS_PER_TICK = 64;
     private record ColumnKey(String dimension, int x, int z) { }
 
@@ -174,11 +174,8 @@ public final class AuthoritativeWorldRuntime implements ServerWorldRuntime {
                                       Chunk source, ChunkColumnSnapshot snapshot, Throwable failure) { }
     private record CachedSnapshot(Chunk source, long revision, ChunkColumnSnapshot snapshot) { }
     private final Map<ColumnKey, SnapshotWork> snapshots = new LinkedHashMap<>();
-    private final Map<ColumnKey, CachedSnapshot> snapshotCache = new LinkedHashMap<>(256, 0.75F, true) {
-        @Override protected boolean removeEldestEntry(Map.Entry<ColumnKey, CachedSnapshot> eldest) {
-            return size() > 4096;
-        }
-    };
+    private final Map<ColumnKey, CachedSnapshot> snapshotCache = new LinkedHashMap<>(256, 0.75F, true);
+    private final ReplicationCacheBudget replicationCacheBudget;
     private final ConcurrentLinkedQueue<SnapshotCompletion> completedSnapshots = new ConcurrentLinkedQueue<>();
     private final List<ChunkBlockChanges> pendingBlockChanges = new ArrayList<>();
     private final List<BlockEntityReplicationUpdate> pendingBlockEntityUpdates = new ArrayList<>();
@@ -189,26 +186,37 @@ public final class AuthoritativeWorldRuntime implements ServerWorldRuntime {
     private final List<RegistryMapping> registryMappings;
     private final Map<Item, Integer> itemNetworkIds = new IdentityHashMap<>();
     private final List<Item> networkItems = new ArrayList<>();
+    private volatile int residentChunkCount;
     private boolean closed;
 
     public AuthoritativeWorldRuntime(ServerConfig config) throws IOException {
-        this(config, config.worldDirectory(), new WorldWorkerPool(config.workerThreads()), true);
+        this(config, config.worldDirectory(), new WorldWorkerPool(config.workerThreads()), true,
+                new SecureRandom().nextInt());
+    }
+
+    /** Deterministic fresh-world entry point for production-pipeline benchmarks and tests. */
+    public AuthoritativeWorldRuntime(ServerConfig config, int initialWorldSeed) throws IOException {
+        this(config, config.worldDirectory(), new WorldWorkerPool(config.workerThreads()), true,
+                initialWorldSeed);
     }
 
     /** Oeffnet einen expliziten Saveordner fuer den Integrated Server. */
     public AuthoritativeWorldRuntime(ServerConfig config, Path worldDirectory) throws IOException {
-        this(config, worldDirectory, new WorldWorkerPool(config.workerThreads()), true);
+        this(config, worldDirectory, new WorldWorkerPool(config.workerThreads()), true,
+                new SecureRandom().nextInt());
     }
 
     /** Integrated Server: Worldgen, Snapshots und Client-Meshing teilen sich einen Pool. */
     public AuthoritativeWorldRuntime(ServerConfig config, Path worldDirectory,
                                      WorldWorkerPool workers) throws IOException {
-        this(config, worldDirectory, workers, false);
+        this(config, worldDirectory, workers, false, new SecureRandom().nextInt());
     }
 
     private AuthoritativeWorldRuntime(ServerConfig config, Path worldDirectory,
-                                      WorldWorkerPool workers, boolean ownsWorkers) throws IOException {
+                                      WorldWorkerPool workers, boolean ownsWorkers,
+                                      int initialWorldSeed) throws IOException {
         this.config = config;
+        this.replicationCacheBudget = new ReplicationCacheBudget(config.replicationCacheBudgetBytes());
         this.workers = java.util.Objects.requireNonNull(workers, "workers");
         this.ownsWorkers = ownsWorkers;
         this.directory = worldDirectory.toAbsolutePath().normalize();
@@ -222,8 +230,7 @@ public final class AuthoritativeWorldRuntime implements ServerWorldRuntime {
         }
         try {
             bootstrapGameplay();
-            int seed = new SecureRandom().nextInt();
-            this.save = WorldSaves.openOrCreate(this.directory.toFile(), config.world(), seed);
+            this.save = WorldSaves.openOrCreate(this.directory.toFile(), config.world(), initialWorldSeed);
             this.world = new World(this.save, this.directory.toFile(), WorldSoundSink.NONE, false,
                     this.workers);
             this.registryMappings = createRegistryMappings();
@@ -268,8 +275,15 @@ public final class AuthoritativeWorldRuntime implements ServerWorldRuntime {
     public WorldWorkerPool workerPool() { return this.workers; }
     @Override public WorkerStats workerStats() {
         return new WorkerStats(this.workers.workerCount(), this.workers.activeTasks(),
-                this.workers.queuedTasks());
+                this.workers.queuedTasks(), java.util.stream.IntStream.range(0, 4).mapToObj(lane -> {
+                    var stats = this.workers.laneStats(lane);
+                    return new WorkerLaneStats(lane, stats.queued(), stats.running(), stats.completed(),
+                            stats.oldestQueuedAgeNanos(), stats.queueWaitMedianNanos(),
+                            stats.queueWaitP95Nanos(), stats.completedPerSecond());
+                }).toList());
     }
+    @Override public ReplicationCacheBudget replicationCacheBudget() { return this.replicationCacheBudget; }
+    @Override public int residentChunkCount() { return this.residentChunkCount; }
     @Override public List<RegistryMapping> registryMappings() { return this.registryMappings; }
 
     @Override
@@ -278,11 +292,13 @@ public final class AuthoritativeWorldRuntime implements ServerWorldRuntime {
         for (EntityPlayer player : this.players.values()) {
             byDimension.computeIfAbsent(player.getDimensionId(), ignored -> new ArrayList<>()).add(player);
         }
+        int residentChunks = 0;
         for (Map.Entry<Identifier, List<EntityPlayer>> entry : byDimension.entrySet()) {
             Dimension dimension = this.world.dimensions().getLoaded(entry.getKey());
             if (dimension != null) {
                 configureNetworkDimension(dimension);
                 dimension.updatePlayers(entry.getValue());
+                residentChunks += dimension.getChunkManager().loadedChunks().size();
                 for (EntityPlayer player : entry.getValue()) {
                     this.finalizeSimplePortalArrival(player, dimension);
                     this.finalizeNetherPortalArrival(player, dimension);
@@ -293,6 +309,7 @@ public final class AuthoritativeWorldRuntime implements ServerWorldRuntime {
                 this.collectBlockEntityUpdates(dimension);
             }
         }
+        this.residentChunkCount = residentChunks;
         completeReadySnapshots();
         this.world.tickLifecycle();
         for (OpenContainer open : this.openContainers.values()) {
@@ -320,8 +337,14 @@ public final class AuthoritativeWorldRuntime implements ServerWorldRuntime {
         ColumnKey key = new ColumnKey(id.toString(), chunkX, chunkZ);
         Chunk current = dimension.getChunkManager().getChunk(chunkX, chunkZ);
         CachedSnapshot cached = this.snapshotCache.get(key);
-        if (cached != null && cached.source() == current && current != null
-                && cached.revision() == current.modificationEpoch() && isSnapshotReady(current)) {
+        boolean cachedHit = cached != null && cached.source() == current && current != null
+                && cached.revision() == current.modificationEpoch() && isSnapshotReady(current);
+        // An existing freeze job is the logical cache's in-flight form. Count recipients joining
+        // it as hits as well: they reuse the same one-per-revision materialisation.
+        boolean inFlightHit = !cachedHit && this.snapshots.containsKey(key);
+        this.replicationCacheBudget.request(ReplicationCacheBudget.Layer.LOGICAL_SNAPSHOT,
+                cachedHit || inFlightHit);
+        if (cachedHit) {
             return ChunkSnapshotTicket.completed(Optional.of(cached.snapshot()));
         }
         ChunkSnapshotTicket ticket = new ChunkSnapshotTicket();
@@ -338,7 +361,7 @@ public final class AuthoritativeWorldRuntime implements ServerWorldRuntime {
             this.snapshots.remove(completion.key(), completion.work());
             if (completion.failure() == null && completion.snapshot() != null
                     && completion.source().modificationEpoch() == completion.snapshot().revision()) {
-                this.snapshotCache.put(completion.key(), new CachedSnapshot(completion.source(),
+                cacheSnapshot(completion.key(), new CachedSnapshot(completion.source(),
                         completion.snapshot().revision(), completion.snapshot()));
             }
             for (ChunkSnapshotTicket ticket : completion.work().tickets) {
@@ -365,6 +388,9 @@ public final class AuthoritativeWorldRuntime implements ServerWorldRuntime {
             if (!isSnapshotReady(chunk)) continue;
             work.encoding = true;
             submitted++;
+            CachedSnapshot previous = this.snapshotCache.get(key);
+            ChunkColumnSnapshot previousRevision = previous != null && previous.source() == chunk
+                    ? previous.snapshot() : null;
             // Snapshot-Arbeit konkurriert im Integrated Server fair mit naher Generierung und
             // Client-Meshing. Das fruehere 3-Jobs/20-TPS-Limit existiert damit nicht mehr.
             /* Snapshot materialisation shares the Integrated-Server pool with generation,
@@ -373,13 +399,35 @@ public final class AuthoritativeWorldRuntime implements ServerWorldRuntime {
             this.workers.execute(2, () -> {
                 try {
                     ChunkColumnSnapshot snapshot = ChunkSnapshotEncoder.encode(key.dimension(), chunk,
-                            dimension.getGenerator());
+                            dimension.getGenerator(), previousRevision);
+                    this.replicationCacheBudget.created(
+                            ReplicationCacheBudget.Layer.LOGICAL_SNAPSHOT);
+                    this.replicationCacheBudget.snapshotAllocated(
+                            snapshot.newlyAllocatedBytesComparedTo(previousRevision));
                     this.completedSnapshots.add(new SnapshotCompletion(key, work, chunk, snapshot, null));
                 } catch (Throwable failure) {
                     this.completedSnapshots.add(new SnapshotCompletion(key, work, chunk, null, failure));
                 }
             });
         }
+    }
+
+    private void cacheSnapshot(ColumnKey key, CachedSnapshot value) {
+        CachedSnapshot previous = this.snapshotCache.remove(key);
+        if (previous != null) this.replicationCacheBudget.release(
+                ReplicationCacheBudget.Layer.LOGICAL_SNAPSHOT, previous.snapshot().retainedBytes());
+        long bytes = value.snapshot().retainedBytes();
+        while (!this.replicationCacheBudget.reserve(
+                ReplicationCacheBudget.Layer.LOGICAL_SNAPSHOT, bytes)) {
+            var iterator = this.snapshotCache.entrySet().iterator();
+            if (!iterator.hasNext()) return;
+            CachedSnapshot evicted = iterator.next().getValue();
+            iterator.remove();
+            this.replicationCacheBudget.release(ReplicationCacheBudget.Layer.LOGICAL_SNAPSHOT,
+                    evicted.snapshot().retainedBytes());
+            this.replicationCacheBudget.eviction();
+        }
+        this.snapshotCache.put(key, value);
     }
 
     private static boolean isSnapshotReady(Chunk chunk) {
@@ -401,7 +449,8 @@ public final class AuthoritativeWorldRuntime implements ServerWorldRuntime {
         if (previous != null) previous.close();
         Dimension dimension = ticket.dimension();
         configureNetworkDimension(dimension);
-        dimension.getChunkManager().setRenderDistance(this.config.viewDistance() + NETWORK_LOAD_HALO);
+        dimension.getChunkManager().configureStreamingDistance(
+                this.config.viewDistance(), CLIENT_MESH_HALO);
         dimension.setSimulationDistance(this.config.simulationDistance());
         if (!persisted) {
             World.SpawnPoint spawn = this.world.spawnPoint();
@@ -543,7 +592,8 @@ public final class AuthoritativeWorldRuntime implements ServerWorldRuntime {
         DimensionManager.DimensionTicket nextTicket = this.world.acquireDimension(targetDimension,
                 DimensionManager.TicketType.PLAYER, identity.uuid());
         Dimension dimension = nextTicket.dimension();
-        dimension.getChunkManager().setRenderDistance(this.config.viewDistance() + NETWORK_LOAD_HALO);
+        dimension.getChunkManager().configureStreamingDistance(
+                this.config.viewDistance(), CLIENT_MESH_HALO);
         dimension.setSimulationDistance(this.config.simulationDistance());
         DimensionManager.DimensionTicket oldTicket = this.playerTickets.put(identity.uuid(), nextTicket);
         if (oldTicket != null) oldTicket.close();
@@ -1592,7 +1642,8 @@ public final class AuthoritativeWorldRuntime implements ServerWorldRuntime {
                 DimensionManager.TicketType.PLAYER, identity.uuid());
         Dimension target = next.dimension();
         configureNetworkDimension(target);
-        target.getChunkManager().setRenderDistance(this.config.viewDistance() + NETWORK_LOAD_HALO);
+        target.getChunkManager().configureStreamingDistance(
+                this.config.viewDistance(), CLIENT_MESH_HALO);
         target.setSimulationDistance(this.config.simulationDistance());
         DimensionManager.DimensionTicket previous = this.playerTickets.put(identity.uuid(), next);
         if (previous != null) previous.close();
@@ -1948,7 +1999,12 @@ public final class AuthoritativeWorldRuntime implements ServerWorldRuntime {
             for (ChunkSnapshotTicket ticket : pending.tickets) ticket.complete(Optional.empty());
         }
         this.snapshots.clear();
+        long cachedBytes = 0;
+        for (CachedSnapshot cached : this.snapshotCache.values()) {
+            cachedBytes += cached.snapshot().retainedBytes();
+        }
         this.snapshotCache.clear();
+        this.replicationCacheBudget.release(ReplicationCacheBudget.Layer.LOGICAL_SNAPSHOT, cachedBytes);
         if (!this.workers.awaitIdle(10, java.util.concurrent.TimeUnit.SECONDS)) {
             System.err.println("[Server] Worker-Pool war beim Weltabbau nach 10 s noch aktiv");
         }
@@ -1960,6 +2016,9 @@ public final class AuthoritativeWorldRuntime implements ServerWorldRuntime {
             if (this.ownsWorkers) this.workers.dispose();
             try { this.lock.release(); } catch (IOException ignored) { }
             try { this.lockChannel.close(); } catch (IOException ignored) { }
+        }
+        if (Boolean.getBoolean("skyengine.debug.replicationLeaseAssertions")) {
+            this.replicationCacheBudget.assertNoActiveLeases();
         }
     }
 }

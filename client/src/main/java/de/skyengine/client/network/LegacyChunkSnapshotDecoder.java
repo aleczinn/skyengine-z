@@ -20,9 +20,10 @@ import de.skyengine.shared.world.ChunkSectionSnapshot;
 import de.skyengine.shared.world.LightPlane;
 
 import java.util.Objects;
-import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.ByteBuffer;
 
 /** Rebuilds the existing L0 representation from a transport-neutral immutable snapshot. */
 public final class LegacyChunkSnapshotDecoder {
@@ -39,18 +40,9 @@ public final class LegacyChunkSnapshotDecoder {
         boolean[] receivedSections = new boolean[Chunk.SECTIONS];
 
         for (ChunkSectionSnapshot section : snapshot.sections()) {
-            int[] palette = section.palette();
-            for (int stateId : palette) {
-                if (stateId < 0) throw new ProtocolException("Negative block-state ID in chunk palette");
-            }
-            BitStorage storage = null;
-            if (section.bitsPerEntry() != 0) {
-                storage = new BitStorage(section.bitsPerEntry(), ChunkSection.VOLUME,
-                        section.packedPaletteIndices());
-                validatePaletteIndices(section, storage, palette.length);
-            }
-            PalettedContainer blocks = new PalettedContainer(ChunkSection.VOLUME,
-                    palette, palette.length, storage, section.nonAir());
+            PalettedContainer blocks = PalettedContainer.adoptImmutable(ChunkSection.VOLUME,
+                    section.paletteData(), section.bitsPerEntry(), section.packedPaletteData(),
+                    section.nonAir());
             chunk.installSection(section.sectionY(), new ChunkSection(blocks));
             receivedSections[section.sectionY()] = true;
             installLight(chunk.light, section.sectionY(), section.skyLight());
@@ -97,7 +89,8 @@ public final class LegacyChunkSnapshotDecoder {
                 chunk.setBlockEntity(source.localX(), source.y(), source.localZ(), entity);
             }
             try {
-                entity.loadNetwork(DataTagIO.read(new DataInputStream(new ByteArrayInputStream(source.dataView()))));
+                entity.loadNetwork(DataTagIO.read(new DataInputStream(
+                        new ByteBufferInputStream(source.dataBuffer()))));
             } catch (IOException malformed) {
                 throw new ProtocolException("Invalid block-entity payload", malformed);
             }
@@ -119,23 +112,25 @@ public final class LegacyChunkSnapshotDecoder {
         }
     }
 
-    private static void validatePaletteIndices(ChunkSectionSnapshot section, BitStorage storage,
-                                               int paletteSize) throws ProtocolException {
-        for (int index = 0; index < ChunkSection.VOLUME; index++) {
-            int paletteIndex = storage.get(index);
-            if (paletteIndex >= paletteSize) {
-                throw new ProtocolException("Chunk " + section.sectionY()
-                        + " contains palette index " + paletteIndex
-                        + " outside palette size " + paletteSize);
-            }
-        }
-    }
-
     private static void installLight(LightStorage target, int sectionY, LightPlane plane) {
         switch (plane.mode()) {
             case UNIFORM_ZERO -> target.setUniform(sectionY, 0);
             case UNIFORM_FULL -> target.setUniform(sectionY, 15);
-            case PACKED_NIBBLES -> target.installPackedSection(sectionY, plane.packedNibbles());
+            case PACKED_NIBBLES -> target.installImmutableSection(sectionY, plane.packedNibblesData());
+        }
+    }
+
+    private static final class ByteBufferInputStream extends InputStream {
+        private final ByteBuffer source;
+        private ByteBufferInputStream(ByteBuffer source) { this.source = source; }
+        @Override public int read() {
+            return this.source.hasRemaining() ? this.source.get() & 0xff : -1;
+        }
+        @Override public int read(byte[] bytes, int offset, int length) {
+            if (!this.source.hasRemaining()) return -1;
+            int count = Math.min(length, this.source.remaining());
+            this.source.get(bytes, offset, count);
+            return count;
         }
     }
 }

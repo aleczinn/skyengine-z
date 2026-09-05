@@ -59,10 +59,14 @@ final class ChunkMesherPistonAoTest {
         GameSettings settings = GameSettings.get();
         boolean previousAo = settings.ambientOcclusion;
         settings.ambientOcclusion = ambientOcclusion;
+        ChunkMesher.configure(ambientOcclusion,
+                settings.leavesQuality == GameSettings.LeavesQuality.LOW);
         try {
             return supportingFaceColors(stateId);
         } finally {
             settings.ambientOcclusion = previousAo;
+            ChunkMesher.configure(previousAo,
+                    settings.leavesQuality == GameSettings.LeavesQuality.LOW);
         }
     }
 

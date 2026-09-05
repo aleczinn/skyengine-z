@@ -49,3 +49,18 @@ tasks.register("multiplayerLoadTest") {
     group = "verification"
     dependsOn(":skyengine-tools:multiplayerLoadTest")
 }
+
+tasks.register("multiplayerPipelineLoadTest") {
+    group = "verification"
+    dependsOn(":skyengine-tools:multiplayerPipelineLoadTest")
+}
+
+tasks.register("multiplayerDedicatedLoadTest") {
+    group = "verification"
+    dependsOn(":skyengine-tools:multiplayerDedicatedLoadTest")
+}
+
+tasks.register("multiplayerComparisonLoadTest") {
+    group = "verification"
+    dependsOn(":skyengine-tools:multiplayerComparisonLoadTest")
+}

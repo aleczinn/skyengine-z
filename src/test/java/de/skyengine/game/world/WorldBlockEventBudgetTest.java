@@ -1,5 +1,6 @@
 package de.skyengine.game.world;
 
+import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkManager;
@@ -108,6 +109,7 @@ final class WorldBlockEventBudgetTest {
         private static final Field RESCHEDULED_BLOCK_EVENTS_FIELD;
         private static final Field GAME_TIME_FIELD;
         private static final Field CHUNKS_FIELD;
+        private static final Field ACTIVE_PLAYERS_FIELD;
         private static final Method PROCESS_BLOCK_EVENTS;
 
         static {
@@ -120,6 +122,8 @@ final class WorldBlockEventBudgetTest {
                 GAME_TIME_FIELD.setAccessible(true);
                 CHUNKS_FIELD = ChunkManager.class.getDeclaredField("chunks");
                 CHUNKS_FIELD.setAccessible(true);
+                ACTIVE_PLAYERS_FIELD = Dimension.class.getDeclaredField("activePlayers");
+                ACTIVE_PLAYERS_FIELD.setAccessible(true);
                 PROCESS_BLOCK_EVENTS = Dimension.class.getDeclaredMethod("processBlockEvents");
                 PROCESS_BLOCK_EVENTS.setAccessible(true);
             } catch (ReflectiveOperationException e) {
@@ -129,6 +133,11 @@ final class WorldBlockEventBudgetTest {
 
         TestWorld() {
             super("__block_event_budget_test", level(), null, null);
+            try {
+                ACTIVE_PLAYERS_FIELD.set(this, List.of(new EntityPlayer()));
+            } catch (IllegalAccessException e) {
+                throw new AssertionError(e);
+            }
         }
 
         int blockEventCount() throws IllegalAccessException {

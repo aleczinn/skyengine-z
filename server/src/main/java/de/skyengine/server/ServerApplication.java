@@ -16,6 +16,7 @@ import de.skyengine.shared.network.transport.TransportConnection;
 import java.io.IOException;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class ServerApplication implements AutoCloseable {
@@ -27,6 +28,8 @@ public final class ServerApplication implements AutoCloseable {
     private final ServerCommandDispatcher commands;
     private final de.skyengine.server.event.ServerEventBus events = new de.skyengine.server.event.ServerEventBus();
     private final ConcurrentLinkedQueue<Runnable> tickTasks = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<CompletableFuture<Void>> profilerResetRequests =
+            new ConcurrentLinkedQueue<>();
     private final AtomicBoolean stopRequested = new AtomicBoolean();
     private final AtomicBoolean stopped = new AtomicBoolean();
     private NettyTransportServer network;
@@ -50,9 +53,14 @@ public final class ServerApplication implements AutoCloseable {
     public synchronized void startDedicated() throws InterruptedException {
         if (this.tickLoop != null) throw new IllegalStateException("Server already started");
         this.sessions.lifecycleLogger(message -> System.out.println("[Server] " + message));
-        int encoderThreads = Math.max(1, Math.min(4, this.config.workerThreads() / 2));
-        this.network = new NettyTransportServer(this.protocol, this.config.maxPacketSize(), encoderThreads,
-                this.sessions::accept, this.sessions::statusResponse);
+        boolean sharedEncoder = this.world instanceof AuthoritativeWorldRuntime;
+        this.network = sharedEncoder
+                ? new NettyTransportServer(this.protocol, this.config.maxPacketSize(),
+                ((AuthoritativeWorldRuntime) this.world).workerPool().executorForLane(2),
+                this.sessions::accept, this.sessions::statusResponse, this.world.replicationCacheBudget())
+                : new NettyTransportServer(this.protocol, this.config.maxPacketSize(),
+                Math.max(1, Math.min(4, this.config.workerThreads() / 2)), this.sessions::accept,
+                this.sessions::statusResponse, this.world.replicationCacheBudget());
         this.network.bind(this.config.listenAddress());
         System.out.println("[Server] World loaded: " + this.world.directory()
                 + (this.world instanceof AuthoritativeWorldRuntime authoritative
@@ -61,7 +69,7 @@ public final class ServerApplication implements AutoCloseable {
                 ? " (seed " + headless.seed() + ")" : ""));
         System.out.println("[Server] SkyEngine server listening on " + this.network.localAddress());
         System.out.println("[Server] Workers: world+snapshot=" + this.config.workerThreads()
-                + ", packet-encode=" + encoderThreads
+                + ", packet-encode=" + (sharedEncoder ? "shared/fair-lane-2" : "owned")
                 + ", network-io=" + Math.min(4, Math.max(2,
                 Runtime.getRuntime().availableProcessors() / 8)));
         startTickLoop("Server Tick");
@@ -95,6 +103,14 @@ public final class ServerApplication implements AutoCloseable {
     }
 
     void tick(long nowNanos) {
+        CompletableFuture<Void> profilerReset;
+        if ((profilerReset = this.profilerResetRequests.poll()) != null) {
+            this.profiler.reset();
+            profilerReset.complete(null);
+            while ((profilerReset = this.profilerResetRequests.poll()) != null) {
+                profilerReset.complete(null);
+            }
+        }
         this.profiler.begin(ServerProfiler.Phase.SERVER_TICK_TOTAL);
         Runnable task;
         while ((task = this.tickTasks.poll()) != null) task.run();
@@ -123,6 +139,12 @@ public final class ServerApplication implements AutoCloseable {
     }
 
     public void executeOnTick(Runnable task) { this.tickTasks.add(Objects.requireNonNull(task)); }
+    /** Resets rolling tick metrics before the next tick begins, never inside an open phase. */
+    public CompletableFuture<Void> resetProfilerOnTick() {
+        CompletableFuture<Void> completion = new CompletableFuture<>();
+        this.profilerResetRequests.add(completion);
+        return completion;
+    }
     public long serverTick() { return this.serverTick; }
     public ServerConfig config() { return this.config; }
     public ServerSessionManager sessions() { return this.sessions; }

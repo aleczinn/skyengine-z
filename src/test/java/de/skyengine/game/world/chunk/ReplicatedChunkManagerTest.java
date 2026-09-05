@@ -62,6 +62,29 @@ final class ReplicatedChunkManagerTest {
         assertNull(this.manager.getUploadQueue().poll());
     }
 
+    @Test void dependencyOnlyHaloFeedsOneVisibleMeshWithoutMeshingItself() {
+        this.manager = new ChunkManager(null, null, 2, true);
+        this.renderGeneration = this.manager.attachRenderer();
+        this.manager.setReplicatedRenderAnchor(0, 0);
+
+        for (int z = -1; z <= 1; z++) {
+            for (int x = -1; x <= 1; x++) {
+                Chunk dependency = new Chunk(x, z);
+                dependency.status = ChunkStatus.LIT;
+                this.manager.installReplicatedChunk(dependency, false);
+            }
+        }
+        this.manager.awaitWorkerTasks();
+        assertNull(this.manager.getUploadQueue().poll());
+
+        this.manager.setReplicatedChunkVisible(0, 0, true);
+        this.manager.awaitWorkerTasks();
+        assertEquals(ChunkStatus.READY, this.manager.getChunk(0, 0).status);
+        assertEquals(ChunkStatus.LIT, this.manager.getChunk(1, 0).status);
+        assertEquals(1, this.manager.getUploadQueue().size(),
+                "only the visible centre consumes a full mesh job");
+    }
+
     @Test void missingHaloCornerPreventsMeshUntilItArrives() {
         this.manager = new ChunkManager(null, null, 1, true);
         this.renderGeneration = this.manager.attachRenderer();

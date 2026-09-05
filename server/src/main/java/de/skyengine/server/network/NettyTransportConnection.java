@@ -68,6 +68,7 @@ public final class NettyTransportConnection implements TransportConnection, Comp
     private volatile long lastPacketReceivedNanos;
     private final Executor batchEncoder;
     private final Function<CorePackets.ServerStatusRequest, CorePackets.ServerStatusResponse> statusResponder;
+    private final ReplicationPayloadCache payloadCache;
     private final ConcurrentLinkedQueue<PendingBatch> pendingBatches = new ConcurrentLinkedQueue<>();
     private final AtomicInteger pendingBatchPackets = new AtomicInteger();
     private final AtomicBoolean batchDrainScheduled = new AtomicBoolean();
@@ -97,10 +98,19 @@ public final class NettyTransportConnection implements TransportConnection, Comp
                                     Executor batchEncoder,
                                     Function<CorePackets.ServerStatusRequest,
                                             CorePackets.ServerStatusResponse> statusResponder) {
+        this(channel, registry, serverSide, batchEncoder, statusResponder, null);
+    }
+
+    NettyTransportConnection(Channel channel, PacketRegistry registry, boolean serverSide,
+                             Executor batchEncoder,
+                             Function<CorePackets.ServerStatusRequest,
+                                     CorePackets.ServerStatusResponse> statusResponder,
+                             ReplicationPayloadCache payloadCache) {
         this.channel = Objects.requireNonNull(channel);
         this.registry = Objects.requireNonNull(registry);
         this.batchEncoder = Objects.requireNonNull(batchEncoder);
         this.statusResponder = statusResponder;
+        this.payloadCache = payloadCache;
         this.inboundDirection = serverSide ? PacketDirection.CLIENT_TO_SERVER : PacketDirection.SERVER_TO_CLIENT;
         this.outboundDirection = serverSide ? PacketDirection.SERVER_TO_CLIENT : PacketDirection.CLIENT_TO_SERVER;
         for (LogicalChannel logicalChannel : LogicalChannel.values()) {
@@ -366,10 +376,19 @@ public final class NettyTransportConnection implements TransportConnection, Comp
         ArrayBlockingQueue<EncodedOutbound> queue = this.outbound.get(encoded.channel());
         if (encoded.delivery() == DeliveryClass.UNRELIABLE_SEQUENCED
                 && encoded.packetClass() != CorePackets.PlayerInput.class) {
-            int before = queue.size();
-            queue.removeIf(old -> old.packetClass() == encoded.packetClass()
-                    && old.sequence() < encoded.sequence());
-            this.outboundCount.addAndGet(queue.size() - before);
+            /* The Netty event loop drains this queue concurrently. A size-before/size-after
+               delta also counted entries consumed by that thread and therefore decremented
+               outboundCount twice; under entity/player-state traffic the public watermark
+               eventually became negative. Remove candidates individually so exactly the
+               thread which successfully takes an entry owns its counter decrement. */
+            int removed = 0;
+            for (EncodedOutbound old : queue) {
+                if (old.packetClass() == encoded.packetClass()
+                        && old.sequence() < encoded.sequence() && queue.remove(old)) {
+                    removed++;
+                }
+            }
+            if (removed != 0) this.outboundCount.addAndGet(-removed);
         }
         if (!queue.offer(encoded)) {
             if (encoded.delivery() == DeliveryClass.UNRELIABLE
@@ -429,16 +448,29 @@ public final class NettyTransportConnection implements TransportConnection, Comp
 
     private boolean enqueueChunkFragments(CorePackets.ChunkColumnData data, ConnectionState state,
                                           CompressionSettings compression) throws ProtocolException {
-        byte[] payload = de.skyengine.shared.network.CoreProtocol.encodeChunkSnapshot(data.chunk());
+        ReplicationPayloadCache.PreparedPayload prepared = this.payloadCache == null
+                ? null : this.payloadCache.prepared(data.chunk(), compression.algorithm(),
+                compression.threshold(), compression.maximumBytes(), compression.level());
+        ReplicationPayloadCache.EncodedPayload cachedPayload = prepared == null ? null : prepared.payload();
+        byte[] uncachedBytes = cachedPayload == null
+                ? de.skyengine.shared.network.CoreProtocol.encodeChunkSnapshot(data.chunk()) : null;
+        de.skyengine.shared.world.ImmutableByteArray uncachedPayload = uncachedBytes == null ? null
+                : de.skyengine.shared.world.ImmutableByteArray.takeOwnership(uncachedBytes);
+        int payloadLength = cachedPayload == null ? uncachedPayload.length() : cachedPayload.length();
+        int decodedLength = prepared == null ? 0 : prepared.decodedLength();
         int fragmentBytes = CorePackets.ChunkColumnFragment.MAX_FRAGMENT_BYTES;
-        int count = (payload.length + fragmentBytes - 1) / fragmentBytes;
+        int count = (payloadLength + fragmentBytes - 1) / fragmentBytes;
         if (count < 1 || count > 256) throw new ProtocolException("Chunk requires too many fragments");
         for (int index = 0, offset = 0; index < count; index++) {
-            int length = Math.min(fragmentBytes, payload.length - offset);
-            byte[] part = java.util.Arrays.copyOfRange(payload, offset, offset + length);
-            CorePackets.ChunkColumnFragment fragment = new CorePackets.ChunkColumnFragment(
-                    data.batchId(), index, count, payload.length, part);
-            if (!enqueueEncoded(encode(new PacketEnvelope(fragment), state, compression))) return false;
+            int length = Math.min(fragmentBytes, payloadLength - offset);
+            de.skyengine.shared.world.ImmutableByteArray part = cachedPayload == null
+                    ? uncachedPayload.slice(offset, length) : cachedPayload.slice(offset, length);
+            CorePackets.ChunkColumnFragment fragment = CorePackets.ChunkColumnFragment.shared(
+                    data.batchId(), index, count, payloadLength, decodedLength, part);
+            CompressionSettings framing = compression.algorithm().equals("zstd")
+                    ? new CompressionSettings("zstd", Integer.MAX_VALUE,
+                    compression.maximumBytes(), compression.level()) : compression;
+            if (!enqueueEncoded(encode(new PacketEnvelope(fragment), state, framing))) return false;
             offset += length;
         }
         return true;

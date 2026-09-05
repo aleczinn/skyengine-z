@@ -17,7 +17,7 @@ import java.util.Random;
 import java.util.function.LongSupplier;
 
 /** Deterministic debug wrapper for latency/jitter/bandwidth and unreliable-packet faults. */
-public final class SimulatedTransportConnection implements TransportConnection {
+public final class SimulatedTransportConnection implements TransportConnection, BatchTransport {
     private static final int MAX_DELAYED_PACKETS = 4096;
     private record Delayed(long releaseNanos, PacketEnvelope envelope) {}
 
@@ -67,6 +67,22 @@ public final class SimulatedTransportConnection implements TransportConnection {
         return true;
     }
 
+    @Override public synchronized boolean sendBatch(List<PacketEnvelope> packets) {
+        Objects.requireNonNull(packets);
+        pump();
+        if (!open() || packets.isEmpty() || this.outgoing.size() > MAX_DELAYED_PACKETS - packets.size()) {
+            return false;
+        }
+        for (PacketEnvelope packet : packets) Objects.requireNonNull(packet);
+        // Chunk traffic is reliable/ordered. Reserving the complete delayed batch here avoids
+        // the partial-admission bug that can otherwise strand a server snapshot lease.
+        for (PacketEnvelope packet : packets) {
+            long release = releaseTime(packet, this.clock.getAsLong());
+            this.outgoing.add(new Delayed(release, packet));
+        }
+        return true;
+    }
+
     @Override public PacketEnvelope pollInbound() {
         pump();
         long now = this.clock.getAsLong();
@@ -84,8 +100,9 @@ public final class SimulatedTransportConnection implements TransportConnection {
         long now = this.clock.getAsLong();
         this.outgoing.sort(Comparator.comparingLong(Delayed::releaseNanos));
         while (!this.outgoing.isEmpty() && this.outgoing.getFirst().releaseNanos() <= now) {
-            Delayed delayed = this.outgoing.removeFirst();
+            Delayed delayed = this.outgoing.getFirst();
             if (!this.delegate.send(delayed.envelope())) break;
+            this.outgoing.removeFirst();
         }
         PacketEnvelope inbound;
         while (this.incoming.size() < MAX_DELAYED_PACKETS && (inbound = this.delegate.pollInbound()) != null) {

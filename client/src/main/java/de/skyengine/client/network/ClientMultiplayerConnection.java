@@ -276,6 +276,7 @@ public class ClientMultiplayerConnection implements AutoCloseable {
     private void adoptConnection(TransportConnection connection, UUID identity) {
         this.connection = connection;
         this.chunks = new ReplicatedChunkCache(this.chunkListener);
+        this.chunks.setTrustedImmutableTransfer(connection.transfersImmutableObjects());
         this.session = new ClientNetworkSession(connection, this.chunks,
                 packs -> ClientNetworkSession.PackValidation.acceptAll(), new SessionListener());
         this.chunks.setResyncRequester(request -> {

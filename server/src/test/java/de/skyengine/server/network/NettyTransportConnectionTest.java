@@ -6,6 +6,8 @@ import de.skyengine.shared.network.PacketDirection;
 import de.skyengine.shared.network.PacketEnvelope;
 import de.skyengine.shared.network.ProtocolFraming;
 import de.skyengine.shared.network.packets.CorePackets;
+import de.skyengine.shared.player.PlayerGameMode;
+import de.skyengine.shared.player.PlayerStateSnapshot;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.embedded.EmbeddedChannel;
 import org.junit.jupiter.api.Test;
@@ -22,6 +24,33 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class NettyTransportConnectionTest {
+    @Test void newerSequencedStateReplacesOlderFramesWithoutCorruptingQueueCount() throws Exception {
+        var registry = CoreProtocol.createRegistry();
+        EmbeddedChannel channel = new EmbeddedChannel();
+        NettyTransportConnection connection = new NettyTransportConnection(channel, registry, true);
+        advanceToPlay(connection);
+
+        assertTrue(connection.send(new PacketEnvelope(new CorePackets.PlayerState(playerState(1)), 1)));
+        assertTrue(connection.send(new PacketEnvelope(new CorePackets.PlayerState(playerState(2)), 2)));
+        assertTrue(connection.send(new PacketEnvelope(new CorePackets.PlayerState(playerState(3)), 3)));
+
+        assertEquals(1, connection.outboundSize(), "only the newest sequenced state remains queued");
+        connection.flushOutbound(64 * 1024);
+        channel.runPendingTasks();
+        assertEquals(0, connection.outboundSize(), "draining must never double-decrement the watermark");
+
+        ByteBuf framed = channel.readOutbound();
+        byte[] bytes = new byte[framed.readableBytes()];
+        framed.readBytes(bytes).release();
+        CorePackets.PlayerState decoded = (CorePackets.PlayerState) registry.decode(
+                PacketDirection.SERVER_TO_CLIENT, ConnectionState.PLAY,
+                ProtocolFraming.unframe(bytes)).packet();
+        assertEquals(3, decoded.state().serverTick());
+        assertNull(channel.readOutbound());
+        connection.close();
+        channel.finishAndReleaseAll();
+    }
+
     @Test void bandwidthCreditDrainsFramesThatFinishEncodingLater() throws Exception {
         var registry = CoreProtocol.createRegistry();
         EmbeddedChannel channel = new EmbeddedChannel();
@@ -185,6 +214,12 @@ class NettyTransportConnectionTest {
                 new int[ChunkColumnSnapshot.TINT_CORNERS],
                 new int[ChunkColumnSnapshot.TINT_CORNERS],
                 new int[ChunkColumnSnapshot.COLUMN_CELLS]);
+    }
+
+    private static PlayerStateSnapshot playerState(long tick) {
+        return new PlayerStateSnapshot(tick, tick, "skyengine:overworld",
+                0.5, 80, 0.5, 0, 0, 0, 0, 0, false,
+                PlayerGameMode.CREATIVE, 0);
     }
 
     private static void advanceToPlay(NettyTransportConnection connection) {

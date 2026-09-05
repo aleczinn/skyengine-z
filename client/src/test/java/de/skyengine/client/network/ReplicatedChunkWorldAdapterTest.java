@@ -51,6 +51,38 @@ final class ReplicatedChunkWorldAdapterTest {
         }
     }
 
+    @Test void localPredictionOverlayCannotMutateConfirmedSnapshotRevision() throws Exception {
+        ChunkManager manager = new ChunkManager(null, null, true);
+        try {
+            ReplicatedChunkWorldAdapter adapter =
+                    new ReplicatedChunkWorldAdapter("skyengine:overworld", manager);
+            ReplicatedChunkCache cache = new ReplicatedChunkCache(adapter);
+            ChunkColumnSnapshot snapshot = snapshot(0, 0);
+            cache.accept(new CorePackets.ChunkBatchStart(2, 2, snapshot.dimension(), 0, 0, 1));
+            cache.accept(new CorePackets.ChunkColumnData(2, snapshot));
+            cache.accept(new CorePackets.ChunkBatchEnd(2));
+            manager.awaitWorkerTasks();
+            adapter.drainPreparedChunks();
+            cache.drainCompletedBatchIds();
+
+            // An unrelated optimistic edit already lives in the mutable presentation chunk.
+            manager.getChunk(0, 0).setBlock(1, 5, 0, Blocks.SAND);
+            cache.accept(new CorePackets.BlockUpdate(snapshot.dimension(), 0, 0, 1,
+                    new BlockChange(0, 5, 0, Blocks.DIRT)));
+
+            assertEquals(Blocks.SAND, manager.getChunk(0, 0).getBlock(1, 5, 0),
+                    "presentation keeps its optimistic overlay");
+            var confirmed = LegacyChunkSnapshotDecoder.decode(
+                    cache.get(snapshot.dimension(), 0, 0));
+            assertEquals(Blocks.DIRT, confirmed.getBlock(0, 5, 0),
+                    "confirmed immutable revision must contain only server state");
+            assertEquals(Blocks.STONE, confirmed.getBlock(1, 5, 0),
+                    "an unrelated pending prediction must not leak into confirmed state");
+        } finally {
+            manager.dispose();
+        }
+    }
+
     private static ChunkColumnSnapshot snapshot(int chunkX, int chunkZ) {
         LightPlane dark = new LightPlane(LightPlane.Mode.UNIFORM_ZERO, null);
         ChunkSectionSnapshot section = new ChunkSectionSnapshot(0,

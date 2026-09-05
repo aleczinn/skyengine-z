@@ -51,9 +51,25 @@ val verifyHeadlessServerJar = tasks.register("verifyHeadlessServerJar") {
             "de/skyengine/graphics/",
             "de/skyengine/audio/"
         )
+        // These explicitly selected gameplay data/profiling types are headless-safe despite
+        // their historical package names. Keep the broad package rejection for every other
+        // renderer/audio implementation instead of disabling the artifact boundary check.
+        val headlessSafeTypes = listOf(
+            "de/skyengine/audio/BlockOpenSound*.class",
+            "de/skyengine/audio/BlockSoundGroup*.class",
+            "de/skyengine/graphics/PerformanceProfiler*.class",
+            "de/skyengine/graphics/Colors*.class",
+            "de/skyengine/graphics/color/Color3*.class",
+            "de/skyengine/graphics/color/Color4*.class",
+            "de/skyengine/graphics/gui/font/FontStyle*.class",
+            "de/skyengine/graphics/gui/text/RichText*.class",
+            "de/skyengine/graphics/gui/text/Span*.class",
+            "de/skyengine/graphics/gui/text/TextColors*.class"
+        )
         val archive = serverJar.get().archiveFile.get().asFile
         val forbidden = zipTree(archive).matching {
             forbiddenPrefixes.forEach { include("$it**") }
+            headlessSafeTypes.forEach { exclude(it) }
         }.files.sortedBy { it.path }
         check(forbidden.isEmpty()) {
             "Dedicated-server jar contains forbidden client/runtime classes:\n${

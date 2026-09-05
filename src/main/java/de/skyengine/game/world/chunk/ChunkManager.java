@@ -37,6 +37,8 @@ public class ChunkManager {
        must never collapse the complete old view just because one column at the new centre is
        still in flight. Owner/render-thread only. */
     private final java.util.HashSet<Long> replicatedPresentedChunks = new java.util.HashSet<>();
+    /* CPU-resident halo columns intentionally stay out of the centre-mesh queue. */
+    private final java.util.HashSet<Long> replicatedVisibleChunks = new java.util.HashSet<>();
     /* Diagnostic only: largest completely presented disk around the current anchor. Rendering
        uses replicatedPresentedChunks and therefore does not shrink with this value. */
     private int replicatedPresentationRadius = -1;
@@ -87,6 +89,13 @@ public class ChunkManager {
     private volatile long activeRenderGeneration;
 
     private int renderDistance = 16; // in chunks
+    /* Server streaming uses stage-specific dependency tickets. A client-visible disk plus its
+       exact mesh halo must become LIT; one additional ring only has to be DECORATED for the
+       light reader, and the outermost ring only GENERATED for feature placement. Keeping this
+       semantic profile here avoids both the old fully-lit radius+2 overwork and missing diagonal
+       dependencies at the circular boundary. Negative means the normal local render pipeline. */
+    private int streamingVisibleDistance = -1;
+    private int streamingClientHalo;
 
     /* Chunk-Persistenz: Lade-Quelle (statt Generierung) + Save-Ziel beim Unload. Von Dimension
        nach der Konstruktion gesetzt; null-tolerant (Tools/Tests ohne Persistenz). */
@@ -132,7 +141,9 @@ public class ChunkManager {
     private static final int PRIO_WORLD_PIPELINE = 1;
     private static final int PRIO_SYSTEM_REMESH = 1;
     private static final int PRIO_REPLICATED_DECODE = 2;
-    private static final int PRIO_REPLICATED_INITIAL_MESH = 2;
+    /* A decoded 3x3-ready column is one CPU phase away from PRESENTED. It therefore belongs
+       beside player remeshes instead of behind an arbitrarily long decode/snapshot backlog. */
+    private static final int PRIO_REPLICATED_INITIAL_MESH = 0;
     private static final int PRIO_LOAD = PRIO_WORLD_PIPELINE;
     private static final int PRIO_LIGHT = PRIO_WORLD_PIPELINE;
 
@@ -202,9 +213,82 @@ public class ChunkManager {
     /* Zustand des letzten Score-Sorts: neu sortiert wird nur bei Chunk-Wechsel oder >20° Drehung */
     private int lastSortPcx = Integer.MIN_VALUE, lastSortPcz;
     private float lastSortYaw;
-    private long lastMultiDemandSignature = Long.MIN_VALUE;
     private int multiPlayerScheduleCursor;
     private int currentAnchorSubmitLimit = Integer.MAX_VALUE;
+    /* Non-null only while updatePlayers builds the union. Overlapping player disks may visit a
+       coordinate repeatedly, but its status machine must advance at most once per server tick. */
+    private final TickLongPrioritySet multiPlayerVisitedChunks = new TickLongPrioritySet();
+    private final TickLongPrioritySet multiPlayerTargetChunks = new TickLongPrioritySet();
+    private boolean collectingMultiPlayerUnion;
+
+    /** Allocation-free primitive set reset by generation stamps once per server tick. */
+    private static final class TickLongPrioritySet {
+        private long[] keys = new long[2048];
+        private byte[] priorities = new byte[2048];
+        private int[] stamps = new int[2048];
+        private int generation = 1;
+        private int size;
+
+        void clear() {
+            this.size = 0;
+            if (++this.generation == 0) {
+                java.util.Arrays.fill(this.stamps, 0);
+                this.generation = 1;
+            }
+        }
+
+        boolean upgrade(long key, int priority) {
+            if ((this.size + 1) * 2 >= this.keys.length) grow();
+            int mask = this.keys.length - 1;
+            int slot = (int) mix(key) & mask;
+            while (this.stamps[slot] == this.generation) {
+                if (this.keys[slot] == key) {
+                    if ((this.priorities[slot] & 0xff) >= priority) return false;
+                    this.priorities[slot] = (byte) priority;
+                    return true;
+                }
+                slot = (slot + 1) & mask;
+            }
+            this.stamps[slot] = this.generation;
+            this.keys[slot] = key;
+            this.priorities[slot] = (byte) priority;
+            this.size++;
+            return true;
+        }
+
+        int priority(long key) {
+            int mask = this.keys.length - 1;
+            int slot = (int) mix(key) & mask;
+            while (this.stamps[slot] == this.generation) {
+                if (this.keys[slot] == key) return this.priorities[slot] & 0xff;
+                slot = (slot + 1) & mask;
+            }
+            return -1;
+        }
+
+        private void grow() {
+            long[] oldKeys = this.keys;
+            int[] oldStamps = this.stamps;
+            int oldGeneration = this.generation;
+            this.keys = new long[oldKeys.length << 1];
+            byte[] oldPriorities = this.priorities;
+            this.priorities = new byte[this.keys.length];
+            this.stamps = new int[this.keys.length];
+            this.generation = 1;
+            this.size = 0;
+            for (int i = 0; i < oldKeys.length; i++) {
+                if (oldStamps[i] == oldGeneration) upgrade(oldKeys[i], oldPriorities[i] & 0xff);
+            }
+        }
+
+        private static long mix(long value) {
+            value ^= value >>> 33;
+            value *= 0xff51afd7ed558ccdl;
+            value ^= value >>> 33;
+            value *= 0xc4ceb9fe1a85ec53l;
+            return value ^ value >>> 33;
+        }
+    }
 
     private static final class Offset {
         final int dx, dz;
@@ -280,7 +364,9 @@ public class ChunkManager {
         this.lightEngines = ThreadLocal.withInitial(() -> new LightEngine(hasSkylight));
         this.workerPool = java.util.Objects.requireNonNull(workerPool, "workerPool");
         this.workerCount = workerPool.workerCount();
-        this.loadQueueLimit = Math.max(4, this.workerCount * 2);
+        /* Keep enough independent columns available to a large work-conserving pool. The old
+           2x window repeatedly starved 28-30 workers while stage dependencies completed. */
+        this.loadQueueLimit = Math.max(128, this.workerCount * 6);
         this.ownsWorkerPool = ownsWorkerPool;
     }
 
@@ -372,13 +458,6 @@ public class ChunkManager {
         }
     }
 
-    private void cancelAllQueuedLoads() {
-        for (PendingLoad pending : this.pendingLoadHandles.values()) {
-            WorldWorkerPool.TaskHandle handle = pending.handle;
-            if (handle != null) handle.cancel();
-        }
-    }
-
     /**
      * true, sobald die initiale Lade-Pipeline ihren Fixpunkt erreicht hat.
      */
@@ -438,7 +517,8 @@ public class ChunkManager {
 
             for (int dx = -this.renderDistance; dx <= this.renderDistance; dx++) {
                 for (int dz = -this.renderDistance; dz <= this.renderDistance; dz++) {
-                    if (dx * dx + dz * dz <= r2) {
+                    if ((this.streamingVisibleDistance >= 0 && this.isStreamingDependency(dx, dz, 2))
+                            || (this.streamingVisibleDistance < 0 && dx * dx + dz * dz <= r2)) {
                         list.add(new Offset(dx, dz));
                     }
                 }
@@ -496,10 +576,6 @@ public class ChunkManager {
         }
         float loadHeading = (float) Math.toDegrees(Math.atan2(vx, -vz));
         float headingDelta = Math.abs(((loadHeading - this.lastSortYaw + 540.0f) % 360.0f) - 180.0f);
-        if (!this.suppressSingleAnchorUnload
-                && (pcx != this.lastSortPcx || pcz != this.lastSortPcz || headingDelta > 20.0f)) {
-            this.cancelAllQueuedLoads();
-        }
         if (pcx != this.lastSortPcx || pcz != this.lastSortPcz || headingDelta > 20.0f) {
             this.lastSortPcx = pcx;
             this.lastSortPcz = pcz;
@@ -529,6 +605,12 @@ public class ChunkManager {
             int cx = pcx + offset.dx;
             int cz = pcz + offset.dz;
             long key = Chunk.key(cx, cz);
+            ChunkStatus targetStatus = this.targetStatus(offset.dx, offset.dz);
+            if (this.collectingMultiPlayerUnion) {
+                if (!this.multiPlayerVisitedChunks.upgrade(key, 0)) continue;
+                int mergedTarget = this.multiPlayerTargetChunks.priority(key);
+                if (mergedTarget >= 0) targetStatus = ChunkStatus.values()[mergedTarget];
+            }
 
             Chunk chunk = this.chunks.get(key);
             if (chunk == null) {
@@ -564,6 +646,7 @@ public class ChunkManager {
             /* 2. Dekoration (Feature-Pass, Scheiben-Modell): sobald das 3x3-Umfeld Terrain hat.
                Der Manager wartet hier nur ab - der Job stößt selbst nie Generierung an. */
             if (chunk.status == ChunkStatus.GENERATED) {
+                if (!targetStatus.isAtLeast(ChunkStatus.DECORATED)) continue;
                 if (this.getAtLeast(cx, cz - 1, ChunkStatus.GENERATED) == null
                         || this.getAtLeast(cx, cz + 1, ChunkStatus.GENERATED) == null
                         || this.getAtLeast(cx - 1, cz, ChunkStatus.GENERATED) == null
@@ -587,6 +670,7 @@ public class ChunkManager {
                ins Zentrum). submitLoadTask und nicht submitTask: sonst zählt der Job nicht in
                pendingLoadTasks, sonst feuert der initialLoadComplete-Fixpunkt zu früh. */
             if (chunk.status == ChunkStatus.DECORATED) {
+                if (!targetStatus.isAtLeast(ChunkStatus.LIT)) continue;
                 Chunk north = this.getAtLeast(cx, cz - 1, ChunkStatus.DECORATED);
                 Chunk south = this.getAtLeast(cx, cz + 1, ChunkStatus.DECORATED);
                 Chunk west = this.getAtLeast(cx - 1, cz, ChunkStatus.DECORATED);
@@ -915,23 +999,25 @@ public class ChunkManager {
      * the map still releases terrain after every player has left it.
      */
     public void updatePlayers(Iterable<EntityPlayer> players) {
-        java.util.List<EntityPlayer> anchors = new java.util.ArrayList<>();
-        for (EntityPlayer player : players) anchors.add(player);
-        if (anchors.isEmpty()) return;
-        long demandSignature = 1;
-        for (EntityPlayer player : anchors) {
+        /* Players in the same chunk contribute the same spatial ticket. Keep the strongest
+           movement vector as its priority representative, then deduplicate partial overlaps
+           again at the per-column status-machine boundary below. */
+        java.util.LinkedHashMap<Long, EntityPlayer> uniqueAnchors = new java.util.LinkedHashMap<>();
+        for (EntityPlayer player : players) {
             int chunkX = (int) Math.floor(player.x) >> ChunkSection.SHIFT;
             int chunkZ = (int) Math.floor(player.z) >> ChunkSection.SHIFT;
-            double heading = player.motionX * player.motionX + player.motionZ * player.motionZ > 1.0E-5
-                    ? Math.toDegrees(Math.atan2(player.motionX, -player.motionZ)) : player.yaw;
-            int headingBucket = Math.floorMod((int) Math.floor((heading + 10.0) / 20.0), 18);
-            demandSignature = 31 * demandSignature + Chunk.key(chunkX, chunkZ);
-            demandSignature = 31 * demandSignature + headingBucket;
+            long key = Chunk.key(chunkX, chunkZ);
+            EntityPlayer previous = uniqueAnchors.get(key);
+            double speedSquared = player.motionX * player.motionX + player.motionZ * player.motionZ;
+            double previousSpeedSquared = previous == null ? -1
+                    : previous.motionX * previous.motionX + previous.motionZ * previous.motionZ;
+            if (speedSquared > previousSpeedSquared) uniqueAnchors.put(key, player);
         }
-        if (demandSignature != this.lastMultiDemandSignature) {
-            this.lastMultiDemandSignature = demandSignature;
-            this.cancelAllQueuedLoads();
-        }
+        java.util.List<EntityPlayer> anchors = new java.util.ArrayList<>(uniqueAnchors.values());
+        if (anchors.isEmpty()) return;
+        /* Movement changes priority, not ownership. Work is cancelled below only when every
+           real player/dependency ticket has left the column; this avoids fast-flight
+           cancel/restart storms while retaining already completed terrain phases. */
         int retainDistance = this.renderDistance + 2;
         long retainDistanceSquared = (long) retainDistance * retainDistance;
         this.cancelQueuedLoadsOutside(chunk -> {
@@ -946,13 +1032,31 @@ public class ChunkManager {
         });
         int rotation = Math.floorMod(this.multiPlayerScheduleCursor++, anchors.size());
         if (rotation != 0) java.util.Collections.rotate(anchors, -rotation);
+        /* Compile stage targets before advancing any chunk. A coordinate which is merely a
+           GENERATED dependency for one player can be LIT client data for another; the stronger
+           union target must win regardless of anchor rotation. This primitive map is reused and
+           creates no per-column objects. */
+        this.multiPlayerTargetChunks.clear();
+        Offset[] targetOffsets = this.getLoadOrder();
+        for (EntityPlayer anchor : anchors) {
+            int anchorX = (int) Math.floor(anchor.x) >> ChunkSection.SHIFT;
+            int anchorZ = (int) Math.floor(anchor.z) >> ChunkSection.SHIFT;
+            for (Offset offset : targetOffsets) {
+                long key = Chunk.key(anchorX + offset.dx, anchorZ + offset.dz);
+                this.multiPlayerTargetChunks.upgrade(key,
+                        this.targetStatus(offset.dx, offset.dz).ordinal());
+            }
+        }
         this.suppressSingleAnchorUnload = true;
+        this.multiPlayerVisitedChunks.clear();
+        this.collectingMultiPlayerUnion = true;
         this.currentAnchorSubmitLimit = Math.max(1,
                 (this.loadQueueLimit + anchors.size() - 1) / anchors.size());
         try {
             for (EntityPlayer player : anchors) this.update(player);
         } finally {
             this.suppressSingleAnchorUnload = false;
+            this.collectingMultiPlayerUnion = false;
             this.currentAnchorSubmitLimit = Integer.MAX_VALUE;
         }
         int unloadDistance = this.renderDistance + 2;
@@ -991,12 +1095,20 @@ public class ChunkManager {
      * The normal generator/update loop must not be used by replicated client worlds.
      */
     public void installReplicatedChunk(Chunk chunk) {
+        this.installReplicatedChunk(chunk, true);
+    }
+
+    /** Installs either a visible column or a dependency-only neighbour used by the mesher. */
+    public void installReplicatedChunk(Chunk chunk, boolean visible) {
         java.util.Objects.requireNonNull(chunk, "chunk");
         if (!chunk.status.isAtLeast(ChunkStatus.LIT)) {
             throw new IllegalArgumentException("Replicated chunk must contain final lighting");
         }
         this.prepareManagedChunk(chunk);
-        Chunk previous = this.chunks.put(Chunk.key(chunk.chunkX, chunk.chunkZ), chunk);
+        long key = Chunk.key(chunk.chunkX, chunk.chunkZ);
+        if (visible) this.replicatedVisibleChunks.add(key);
+        else this.replicatedVisibleChunks.remove(key);
+        Chunk previous = this.chunks.put(key, chunk);
         if (previous != null && previous != chunk) {
             this.chunkRemovalVersion++;
         }
@@ -1007,11 +1119,24 @@ public class ChunkManager {
         this.scheduleReplicatedMeshesAround(chunk.chunkX, chunk.chunkZ);
     }
 
+    /** Updates view membership without unloading dependency data needed at the mesh edge. */
+    public void setReplicatedChunkVisible(int chunkX, int chunkZ, boolean visible) {
+        if (!this.replicatedWorld) return;
+        long key = Chunk.key(chunkX, chunkZ);
+        boolean changed = visible ? this.replicatedVisibleChunks.add(key)
+                : this.replicatedVisibleChunks.remove(key);
+        if (!changed) return;
+        if (visible) this.scheduleReplicatedMeshesAround(chunkX, chunkZ);
+        else this.replicatedPresentedChunks.remove(key);
+        this.replicatedPresentationDirty = true;
+    }
+
     /** Removes a server-replicated chunk and invalidates its GPU residency. */
     public void removeReplicatedChunk(int chunkX, int chunkZ) {
         long key = Chunk.key(chunkX, chunkZ);
         Chunk removed = this.chunks.remove(key);
         if (removed == null) return;
+        this.replicatedVisibleChunks.remove(key);
         this.replicatedPresentedChunks.remove(key);
         this.unloadAnnounceQueue.add(Chunk.key(chunkX, chunkZ));
         this.chunkRemovalVersion++;
@@ -1050,6 +1175,7 @@ public class ChunkManager {
     }
 
     private boolean tryScheduleReplicatedMesh(int chunkX, int chunkZ) {
+        if (!this.replicatedVisibleChunks.contains(Chunk.key(chunkX, chunkZ))) return false;
         Chunk chunk = this.getAtLeast(chunkX, chunkZ, ChunkStatus.LIT);
         if (chunk == null || chunk.status != ChunkStatus.LIT) return false;
         Chunk north = this.getAtLeast(chunkX, chunkZ - 1, ChunkStatus.LIT);
@@ -1108,11 +1234,13 @@ public class ChunkManager {
 
         this.replicatedPresentedChunks.removeIf(key -> {
             Chunk chunk = this.chunks.get(key);
-            return chunk == null || chunk.status != ChunkStatus.READY || !chunk.isFullyUploaded();
+            return !this.replicatedVisibleChunks.contains(key) || chunk == null
+                    || chunk.status != ChunkStatus.READY || !chunk.isFullyUploaded();
         });
 
         Chunk anchor = this.getChunk(this.replicatedRenderAnchorX, this.replicatedRenderAnchorZ);
-        if (isPresentationReady(anchor)) {
+        if (isPresentationReady(anchor) && this.replicatedVisibleChunks.contains(
+                Chunk.key(anchor.chunkX, anchor.chunkZ))) {
             this.replicatedPresentedChunks.add(Chunk.key(anchor.chunkX, anchor.chunkZ));
         }
 
@@ -1121,7 +1249,9 @@ public class ChunkManager {
             advanced = false;
             for (Chunk chunk : this.chunks.values()) {
                 long key = Chunk.key(chunk.chunkX, chunk.chunkZ);
-                if (this.replicatedPresentedChunks.contains(key) || !isPresentationReady(chunk)) continue;
+                if (!this.replicatedVisibleChunks.contains(key)
+                        || this.replicatedPresentedChunks.contains(key)
+                        || !isPresentationReady(chunk)) continue;
                 long dx = (long) chunk.chunkX - this.replicatedRenderAnchorX;
                 long dz = (long) chunk.chunkZ - this.replicatedRenderAnchorZ;
                 if (dx * dx + dz * dz > (long) this.renderDistance * this.renderDistance) continue;
@@ -1266,14 +1396,59 @@ public class ChunkManager {
         return renderDistance;
     }
 
+    /**
+     * Configures the authoritative world's exact replication dependency footprint. The logical
+     * client view is kept separate from the larger server-only dependency extent:
+     * visible/client halo -> LIT, light halo -> DECORATED, feature halo -> GENERATED.
+     */
+    public void configureStreamingDistance(int visibleDistance, int clientDependencyHalo) {
+        if (visibleDistance < 2 || visibleDistance > 32
+                || clientDependencyHalo < 0 || clientDependencyHalo > 1) {
+            throw new IllegalArgumentException("Invalid streaming distance profile");
+        }
+        int extent = visibleDistance + clientDependencyHalo + 2;
+        if (this.streamingVisibleDistance == visibleDistance
+                && this.streamingClientHalo == clientDependencyHalo
+                && this.renderDistance == extent) return;
+        this.streamingVisibleDistance = visibleDistance;
+        this.streamingClientHalo = clientDependencyHalo;
+        this.renderDistance = extent;
+        this.loadOrderRadius = -1;
+        this.replicatedPresentationDirty = true;
+        this.resetLoadDiagnostics();
+    }
+
     public void setRenderDistance(int renderDistance) {
         int clamped = Math.max(2, renderDistance);
         /* Unveränderter Wert darf die Startdiagnose nicht neu beginnen. */
-        if (clamped == this.renderDistance) return;
+        if (clamped == this.renderDistance && this.streamingVisibleDistance < 0) return;
+        this.streamingVisibleDistance = -1;
+        this.streamingClientHalo = 0;
         this.renderDistance = clamped;
+        this.loadOrderRadius = -1;
         this.replicatedPresentationDirty = true;
         /* loadOrder wird beim nächsten update() automatisch neu berechnet */
         this.resetLoadDiagnostics();
+    }
+
+    private ChunkStatus targetStatus(int dx, int dz) {
+        if (this.streamingVisibleDistance < 0) return ChunkStatus.READY;
+        if (this.isStreamingDependency(dx, dz, 0)) return ChunkStatus.LIT;
+        if (this.isStreamingDependency(dx, dz, 1)) return ChunkStatus.DECORATED;
+        return ChunkStatus.GENERATED;
+    }
+
+    /* Package-private architecture probe used by the dependency-ring regression test. */
+    ChunkStatus streamingTargetStatus(int dx, int dz) {
+        return this.targetStatus(dx, dz);
+    }
+
+    private boolean isStreamingDependency(int dx, int dz, int serverDependencyRings) {
+        int halo = this.streamingClientHalo + serverDependencyRings;
+        int visibleDx = Math.max(0, Math.abs(dx) - halo);
+        int visibleDz = Math.max(0, Math.abs(dz) - halo);
+        return (long) visibleDx * visibleDx + (long) visibleDz * visibleDz
+                <= (long) this.streamingVisibleDistance * this.streamingVisibleDistance;
     }
 
     /**

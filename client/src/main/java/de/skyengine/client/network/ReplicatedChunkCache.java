@@ -6,6 +6,8 @@ import de.skyengine.shared.network.packets.CorePackets;
 import de.skyengine.shared.world.BlockChange;
 import de.skyengine.shared.world.ChunkColumnSnapshot;
 import de.skyengine.shared.world.ChunkPosition;
+import de.skyengine.shared.world.ImmutableChunkColumnData;
+import de.skyengine.shared.world.ImmutableChunkSectionData;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -39,12 +41,23 @@ public final class ReplicatedChunkCache {
             chunkLoaded(chunk);
             return CompletableFuture.completedFuture(null);
         }
+        /**
+         * Installs the same replicated data while distinguishing a renderable view member from
+         * a dependency-only halo column. The latter remains available for AO/light/edge reads
+         * but must not consume a complete centre-chunk mesh job.
+         */
+        default CompletionStage<Void> chunkLoadedAsync(ChunkColumnSnapshot chunk, boolean visible) {
+            return chunkLoadedAsync(chunk);
+        }
+        default void chunkVisibilityChanged(String dimension, int chunkX, int chunkZ,
+                                            boolean visible) { }
         /** Releases listener-owned preparation associated with an obsolete decoded snapshot. */
         default void discardDecodedChunk(ChunkColumnSnapshot chunk) { }
         void chunkUnloaded(String dimension, int chunkX, int chunkZ);
         void blocksChanged(String dimension, int chunkX, int chunkZ, long revision, List<BlockChange> changes);
         default ChunkColumnSnapshot snapshotAfterBlockChanges(ChunkColumnSnapshot previous,
-                                                               long revision) { return null; }
+                                                               long revision,
+                                                               List<BlockChange> changes) { return null; }
         default void blockEntityChanged(String dimension, int chunkX, int chunkZ,
                                         de.skyengine.shared.world.BlockEntitySnapshot blockEntity) { }
     }
@@ -53,26 +66,30 @@ public final class ReplicatedChunkCache {
     private static final class Batch {
         final String dimension;
         final long leaseId;
+        final long viewEpoch;
         final int expected;
         final long receiveOrder;
         final Map<Key, ChunkColumnSnapshot> chunks = new LinkedHashMap<>();
         FragmentAssembly fragments;
         int pendingPayloadDecodes;
         boolean ended;
-        Batch(String dimension, long leaseId, int expected, long receiveOrder) {
+        Batch(String dimension, long leaseId, long viewEpoch, int expected, long receiveOrder) {
             this.dimension = dimension;
             this.leaseId = leaseId;
+            this.viewEpoch = viewEpoch;
             this.expected = expected;
             this.receiveOrder = receiveOrder;
         }
     }
     private static final class FragmentAssembly {
-        final byte[][] parts;
+        final de.skyengine.shared.world.ImmutableByteArray[] parts;
         final int totalLength;
+        final int decodedLength;
         int received;
-        FragmentAssembly(int count, int totalLength) {
-            this.parts = new byte[count][];
+        FragmentAssembly(int count, int totalLength, int decodedLength) {
+            this.parts = new de.skyengine.shared.world.ImmutableByteArray[count];
             this.totalLength = totalLength;
+            this.decodedLength = decodedLength;
         }
     }
     private record PendingDelta(long revision, List<BlockChange> changes) { }
@@ -103,8 +120,13 @@ public final class ReplicatedChunkCache {
     private Listener listener;
     private Consumer<ResyncRequest> resyncRequester = ignored -> { };
     private IntUnaryOperator blockStateMapper = IntUnaryOperator.identity();
+    private boolean trustedImmutableTransfer;
     private long lastCompletedBatch;
     private long receiveOrder;
+    private long installedChunkCount;
+    private long unloadedChunkCount;
+    private long currentViewEpoch = -1;
+    private CorePackets.ChunkViewUpdate currentView;
 
     public ReplicatedChunkCache(Listener listener) { this.listener = listener; }
 
@@ -119,21 +141,30 @@ public final class ReplicatedChunkCache {
         this.blockStateMapper = mapper == null ? IntUnaryOperator.identity() : mapper;
     }
 
+    /** Network-layer capability; it affects mapping/copying only, never gameplay semantics. */
+    public void setTrustedImmutableTransfer(boolean trusted) {
+        this.trustedImmutableTransfer = trusted;
+    }
+
     /** Stable snapshot used to seed a listener that was attached after initial chunk batches. */
     public List<ChunkColumnSnapshot> snapshots() { return List.copyOf(this.chunks.values()); }
 
     public void accept(Packet packet) throws ProtocolException {
         long packetOrder = ++this.receiveOrder;
-        if (packet instanceof CorePackets.ChunkBatchStart start) {
+        if (packet instanceof CorePackets.ChunkViewUpdate view) {
+            applyView(view);
+        } else if (packet instanceof CorePackets.ChunkBatchStart start) {
             Key center = key(start.dimension(), start.centerChunkX(), start.centerChunkZ());
             this.latestLeases.merge(center, start.leaseId(), Math::max);
             if (this.batches.putIfAbsent(start.batchId(),
-                    new Batch(start.dimension(), start.leaseId(), start.chunkCount(), packetOrder)) != null) {
+                    new Batch(start.dimension(), start.leaseId(), start.viewEpoch(),
+                            start.chunkCount(), packetOrder)) != null) {
                 throw new ProtocolException("Duplicate chunk batch " + start.batchId());
             }
         } else if (packet instanceof CorePackets.ChunkColumnData data) {
             Batch batch = requiredBatch(data.batchId());
-            ChunkColumnSnapshot chunk = remapBlockStates(data.chunk());
+            ChunkColumnSnapshot chunk = this.trustedImmutableTransfer
+                    ? data.chunk() : remapBlockStates(data.chunk());
             if (!batch.dimension.equals(chunk.dimension())) throw new ProtocolException("Chunk batch dimension mismatch");
             Key key = key(chunk.dimension(), chunk.chunkX(), chunk.chunkZ());
             if (batch.chunks.putIfAbsent(key, chunk) != null) throw new ProtocolException("Duplicate chunk in batch");
@@ -158,9 +189,11 @@ public final class ReplicatedChunkCache {
                 this.installedLeases.remove(key);
                 this.revisions.remove(key);
             }
-            if (installedLease <= unload.leaseId() && this.chunks.remove(key) != null
-                    && this.listener != null) {
-                this.listener.chunkUnloaded(unload.dimension(), unload.chunkX(), unload.chunkZ());
+            if (installedLease <= unload.leaseId() && this.chunks.remove(key) != null) {
+                this.unloadedChunkCount++;
+                if (this.listener != null) {
+                    this.listener.chunkUnloaded(unload.dimension(), unload.chunkX(), unload.chunkZ());
+                }
             }
         } else if (packet instanceof CorePackets.BlockUpdate update) {
             applyChanges(update.dimension(), update.chunkX(), update.chunkZ(), update.revision(), List.of(update.change()));
@@ -189,6 +222,16 @@ public final class ReplicatedChunkCache {
         Map<Key, ChunkColumnSnapshot> accepted = new LinkedHashMap<>();
         List<CompletableFuture<Void>> preparations = new ArrayList<>();
         for (Map.Entry<Key, ChunkColumnSnapshot> entry : batch.chunks.entrySet()) {
+            /* Epochs describe a complete view, not the validity of every coordinate in it.
+               A batch from epoch N may still be required after the center moved in epoch N+1.
+               Discarding it wholesale created permanent holes because the server's interest
+               set correctly retained that coordinate and therefore did not enqueue it again. */
+            if (batch.viewEpoch < this.currentViewEpoch && this.currentView != null
+                    && !inView(entry.getValue().dimension(), entry.getValue().chunkX(),
+                    entry.getValue().chunkZ(), this.currentView)) {
+                discardDecoded(entry.getValue());
+                continue;
+            }
             if (batch.leaseId < this.latestLeases.getOrDefault(entry.getKey(), batch.leaseId)
                     || batch.leaseId <= this.closedLeases.getOrDefault(entry.getKey(), -1L)) {
                 discardDecoded(entry.getValue());
@@ -212,7 +255,10 @@ public final class ReplicatedChunkCache {
             this.pendingInstalls.put(entry.getKey(), entry.getValue());
             if (this.listener != null) {
                 try {
-                    preparations.add(this.listener.chunkLoadedAsync(entry.getValue()).toCompletableFuture());
+                    boolean visible = this.currentView == null || isVisible(entry.getValue().dimension(),
+                            entry.getValue().chunkX(), entry.getValue().chunkZ(), this.currentView);
+                    preparations.add(this.listener.chunkLoadedAsync(
+                            entry.getValue(), visible).toCompletableFuture());
                 } catch (RuntimeException failure) {
                     throw new ProtocolException("Chunk preparation failed", failure);
                 }
@@ -243,10 +289,22 @@ public final class ReplicatedChunkCache {
             if (this.latestCoordinateOrder.getOrDefault(entry.getKey(), Long.MIN_VALUE)
                     != install.receiveOrder()) continue;
             if (this.pendingInstalls.get(entry.getKey()) != entry.getValue()) continue;
+            if (this.revisions.getOrDefault(entry.getKey(), -1L) > entry.getValue().revision()) {
+                this.pendingInstalls.remove(entry.getKey(), entry.getValue());
+                discardDecoded(entry.getValue());
+                continue;
+            }
             this.pendingInstalls.remove(entry.getKey());
             this.chunks.put(entry.getKey(), entry.getValue());
+            this.installedChunkCount++;
             this.installedLeases.put(entry.getKey(), install.leaseId());
             this.revisions.put(entry.getKey(), entry.getValue().revision());
+            if (this.listener != null && this.currentView != null) {
+                this.listener.chunkVisibilityChanged(entry.getValue().dimension(),
+                        entry.getValue().chunkX(), entry.getValue().chunkZ(),
+                        isVisible(entry.getValue().dimension(), entry.getValue().chunkX(),
+                                entry.getValue().chunkZ(), this.currentView));
+            }
             applyPending(entry.getKey());
         }
         this.lastCompletedBatch = Math.max(this.lastCompletedBatch, install.batchId());
@@ -257,26 +315,36 @@ public final class ReplicatedChunkCache {
         Batch batch = requiredBatch(fragment.batchId());
         FragmentAssembly assembly = batch.fragments;
         if (assembly == null) {
-            assembly = new FragmentAssembly(fragment.fragmentCount(), fragment.totalLength());
+            assembly = new FragmentAssembly(fragment.fragmentCount(), fragment.totalLength(),
+                    fragment.decodedLength());
             batch.fragments = assembly;
         } else if (assembly.parts.length != fragment.fragmentCount()
-                || assembly.totalLength != fragment.totalLength()) {
+                || assembly.totalLength != fragment.totalLength()
+                || assembly.decodedLength != fragment.decodedLength()) {
             throw new ProtocolException("Inconsistent chunk fragment header");
         }
         if (assembly.parts[fragment.fragmentIndex()] != null) {
             throw new ProtocolException("Duplicate chunk fragment");
         }
-        assembly.parts[fragment.fragmentIndex()] = fragment.data();
+        assembly.parts[fragment.fragmentIndex()] = fragment.dataPayload();
         assembly.received++;
         if (assembly.received != assembly.parts.length) return;
         byte[] payload = new byte[assembly.totalLength];
         int offset = 0;
-        for (byte[] part : assembly.parts) {
-            if (offset + part.length > payload.length) throw new ProtocolException("Chunk fragments exceed length");
-            System.arraycopy(part, 0, payload, offset, part.length);
-            offset += part.length;
+        for (de.skyengine.shared.world.ImmutableByteArray part : assembly.parts) {
+            if (offset + part.length() > payload.length) throw new ProtocolException("Chunk fragments exceed length");
+            part.copyTo(payload, offset);
+            offset += part.length();
         }
         if (offset != payload.length) throw new ProtocolException("Incomplete chunk fragment payload");
+        if (assembly.decodedLength > 0) {
+            byte[] decoded = new byte[assembly.decodedLength];
+            long actual = com.github.luben.zstd.Zstd.decompress(decoded, payload);
+            if (com.github.luben.zstd.Zstd.isError(actual) || actual != assembly.decodedLength) {
+                throw new ProtocolException("Invalid compressed chunk payload");
+            }
+            payload = decoded;
+        }
         batch.fragments = null;
         batch.pendingPayloadDecodes++;
         CompletionStage<ChunkColumnSnapshot> decode;
@@ -340,6 +408,66 @@ public final class ReplicatedChunkCache {
         return failure;
     }
 
+    private void applyView(CorePackets.ChunkViewUpdate view) {
+        if (view.epoch() <= this.currentViewEpoch) return;
+        CorePackets.ChunkViewUpdate previousView = this.currentView;
+        this.currentViewEpoch = view.epoch();
+        this.currentView = view;
+        var installed = this.chunks.entrySet().iterator();
+        while (installed.hasNext()) {
+            Map.Entry<Key, ChunkColumnSnapshot> entry = installed.next();
+            ChunkColumnSnapshot chunk = entry.getValue();
+            if (inView(chunk.dimension(), chunk.chunkX(), chunk.chunkZ(), view)) continue;
+            installed.remove();
+            this.unloadedChunkCount++;
+            this.revisions.remove(entry.getKey());
+            this.installedLeases.remove(entry.getKey());
+            this.pendingDeltas.remove(entry.getKey());
+            this.pendingBlockEntities.remove(entry.getKey());
+            if (this.listener != null) {
+                this.listener.chunkUnloaded(chunk.dimension(), chunk.chunkX(), chunk.chunkZ());
+            }
+        }
+        if (this.listener != null) {
+            for (ChunkColumnSnapshot chunk : this.chunks.values()) {
+                boolean visible = isVisible(chunk.dimension(), chunk.chunkX(), chunk.chunkZ(), view);
+                boolean previouslyVisible = previousView != null
+                        && isVisible(chunk.dimension(), chunk.chunkX(), chunk.chunkZ(), previousView);
+                if (previousView == null || visible != previouslyVisible) {
+                    this.listener.chunkVisibilityChanged(chunk.dimension(), chunk.chunkX(),
+                            chunk.chunkZ(), visible);
+                }
+            }
+        }
+        var pending = this.pendingInstalls.entrySet().iterator();
+        while (pending.hasNext()) {
+            Map.Entry<Key, ChunkColumnSnapshot> entry = pending.next();
+            ChunkColumnSnapshot chunk = entry.getValue();
+            if (inView(chunk.dimension(), chunk.chunkX(), chunk.chunkZ(), view)) continue;
+            pending.remove();
+            discardDecoded(chunk);
+        }
+    }
+
+    private static boolean inView(String dimension, int chunkX, int chunkZ,
+                                  CorePackets.ChunkViewUpdate view) {
+        if (!dimension.equals(view.dimension())) return false;
+        int dx = Math.abs(chunkX - view.centerChunkX());
+        int dz = Math.abs(chunkZ - view.centerChunkZ());
+        int visibleDx = Math.max(0, dx - view.meshHalo());
+        int visibleDz = Math.max(0, dz - view.meshHalo());
+        return (long) visibleDx * visibleDx + (long) visibleDz * visibleDz
+                <= (long) view.viewDistance() * view.viewDistance();
+    }
+
+    private static boolean isVisible(String dimension, int chunkX, int chunkZ,
+                                     CorePackets.ChunkViewUpdate view) {
+        if (!dimension.equals(view.dimension())) return false;
+        long dx = (long) chunkX - view.centerChunkX();
+        long dz = (long) chunkZ - view.centerChunkZ();
+        return dx * dx + dz * dz <= (long) view.viewDistance() * view.viewDistance();
+    }
+
     private void discardDecoded(ChunkColumnSnapshot snapshot) {
         if (this.listener != null) this.listener.discardDecodedChunk(snapshot);
     }
@@ -369,9 +497,9 @@ public final class ReplicatedChunkCache {
         blockEntities.removeIf(existing -> existing.localX() == changed.localX()
                 && existing.y() == changed.y() && existing.localZ() == changed.localZ());
         blockEntities.add(changed);
-        this.chunks.put(key, new ChunkColumnSnapshot(current.dimension(), current.chunkX(), current.chunkZ(),
-                current.revision(), current.sections(), current.biomeIds(), current.grassTintCorners(),
-                current.foliageTintCorners(), current.heightmap(), blockEntities));
+        this.chunks.put(key, ImmutableChunkColumnData.shared(current.dimension(), current.chunkX(), current.chunkZ(),
+                current.revision(), current.sections(), current.biomeData(), current.grassTintData(),
+                current.foliageTintData(), current.heightmapData(), blockEntities));
         if (this.listener != null) this.listener.blockEntityChanged(current.dimension(), current.chunkX(),
                 current.chunkZ(), changed);
     }
@@ -389,6 +517,16 @@ public final class ReplicatedChunkCache {
         this.resyncRequester.accept(resyncRequest(dimension, chunkX, chunkZ));
     }
     public int size() { return this.chunks.size(); }
+    public int visibleSize() {
+        if (this.currentView == null) return this.chunks.size();
+        int visible = 0;
+        for (ChunkColumnSnapshot chunk : this.chunks.values()) {
+            if (isVisible(chunk.dimension(), chunk.chunkX(), chunk.chunkZ(), this.currentView)) visible++;
+        }
+        return visible;
+    }
+    public long installedChunkCount() { return this.installedChunkCount; }
+    public long unloadedChunkCount() { return this.unloadedChunkCount; }
     public long lastCompletedBatch() { return this.lastCompletedBatch; }
 
     private void applyChanges(String dimension, int chunkX, int chunkZ, long revision,
@@ -410,6 +548,11 @@ public final class ReplicatedChunkCache {
         }
         long currentRevision = this.revisions.getOrDefault(key, chunk.revision());
         if (revision <= currentRevision) return;
+        ChunkColumnSnapshot pendingInstall = this.pendingInstalls.get(key);
+        if (pendingInstall != null && pendingInstall.revision() < revision
+                && this.pendingInstalls.remove(key, pendingInstall)) {
+            discardDecoded(pendingInstall);
+        }
         // A single authoritative simulation transaction may mutate a chunk several times
         // (pistons, fluids, redstone). The packet contains the coalesced final values and its
         // chunk epoch therefore legitimately jumps by more than one.
@@ -427,11 +570,11 @@ public final class ReplicatedChunkCache {
         if (this.listener != null) this.listener.blocksChanged(dimension, chunkX, chunkZ, revision,
                 List.copyOf(remapped));
         ChunkColumnSnapshot replacement = this.listener == null ? null
-                : this.listener.snapshotAfterBlockChanges(chunk, revision);
+                : this.listener.snapshotAfterBlockChanges(chunk, revision, List.copyOf(remapped));
         if (replacement == null) {
-            replacement = new ChunkColumnSnapshot(chunk.dimension(), chunk.chunkX(), chunk.chunkZ(),
-                    revision, chunk.sections(), chunk.biomeIds(), chunk.grassTintCorners(),
-                    chunk.foliageTintCorners(), chunk.heightmap(), chunk.blockEntities());
+            replacement = ImmutableChunkColumnData.shared(chunk.dimension(), chunk.chunkX(), chunk.chunkZ(),
+                    revision, chunk.sections(), chunk.biomeData(), chunk.grassTintData(),
+                    chunk.foliageTintData(), chunk.heightmapData(), chunk.blockEntities());
         }
         this.chunks.put(key, replacement);
     }
@@ -478,16 +621,17 @@ public final class ReplicatedChunkCache {
             for (de.skyengine.shared.world.ChunkSectionSnapshot section : source.sections()) {
                 int[] palette = section.palette();
                 for (int i = 0; i < palette.length; i++) palette[i] = mapper.applyAsInt(palette[i]);
-                sections.add(new de.skyengine.shared.world.ChunkSectionSnapshot(section.sectionY(),
-                        section.nonAir(), palette, section.bitsPerEntry(), section.packedPaletteIndices(),
+                sections.add(ImmutableChunkSectionData.shared(section.sectionY(),
+                        section.nonAir(), de.skyengine.shared.world.ImmutableIntArray.takeOwnership(palette),
+                        section.bitsPerEntry(), section.packedPaletteData(),
                         section.skyLight(), section.blockLight()));
             }
         } catch (IllegalArgumentException invalid) {
             throw new ProtocolException(invalid.getMessage() == null
                     ? "Invalid block-state mapping" : invalid.getMessage());
         }
-        return new ChunkColumnSnapshot(source.dimension(), source.chunkX(), source.chunkZ(), source.revision(),
-                sections, source.biomeIds(), source.grassTintCorners(), source.foliageTintCorners(),
-                source.heightmap(), source.blockEntities());
+        return ImmutableChunkColumnData.shared(source.dimension(), source.chunkX(), source.chunkZ(),
+                source.revision(), sections, source.biomeData(), source.grassTintData(),
+                source.foliageTintData(), source.heightmapData(), source.blockEntities());
     }
 }

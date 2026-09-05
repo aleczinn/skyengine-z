@@ -7,6 +7,8 @@ import de.skyengine.shared.world.BlockChange;
 import de.skyengine.shared.world.ChunkColumnSnapshot;
 import de.skyengine.shared.world.BlockEntitySnapshot;
 import de.skyengine.shared.world.ChunkSectionSnapshot;
+import de.skyengine.shared.world.ImmutableChunkColumnData;
+import de.skyengine.shared.world.ImmutableChunkSectionData;
 import de.skyengine.shared.world.LightPlane;
 import de.skyengine.shared.player.PlayerInputFrame;
 import de.skyengine.shared.player.PlayerStateSnapshot;
@@ -197,16 +199,27 @@ public final class CoreProtocol {
 
     private static void registerChunkStreaming(PacketRegistry registry) {
         EnumSet<ConnectionState> play = states(ConnectionState.PLAY);
+        registry.register(type(29, CorePackets.ChunkViewUpdate.class, PacketDirection.SERVER_TO_CLIENT, play,
+                LogicalChannel.CHUNK_DATA, DeliveryClass.RELIABLE_ORDERED, 320,
+                PacketCodec.of((out, p) -> {
+                    out.writeString(p.dimension(), ProtocolLimits.MAX_IDENTIFIER_BYTES);
+                    out.writeInt(p.centerChunkX()); out.writeInt(p.centerChunkZ());
+                    out.writeVarInt(p.viewDistance()); out.writeVarInt(p.meshHalo());
+                    out.writeVarLong(p.epoch());
+                }, in -> new CorePackets.ChunkViewUpdate(
+                        in.readString(ProtocolLimits.MAX_IDENTIFIER_BYTES), in.readInt(), in.readInt(),
+                        in.readVarInt(), in.readVarInt(), in.readVarLong()))));
         registry.register(type(20, CorePackets.ChunkBatchStart.class, PacketDirection.SERVER_TO_CLIENT, play,
                 LogicalChannel.CHUNK_DATA, DeliveryClass.RELIABLE_ORDERED, 512,
                 PacketCodec.of((out, p) -> {
                     out.writeVarLong(p.batchId());
                     out.writeVarLong(p.leaseId());
+                    out.writeVarLong(p.viewEpoch());
                     out.writeString(p.dimension(), ProtocolLimits.MAX_IDENTIFIER_BYTES);
                     out.writeInt(p.centerChunkX());
                     out.writeInt(p.centerChunkZ());
                     out.writeVarInt(p.chunkCount());
-                }, in -> new CorePackets.ChunkBatchStart(in.readVarLong(), in.readVarLong(),
+                }, in -> new CorePackets.ChunkBatchStart(in.readVarLong(), in.readVarLong(), in.readVarLong(),
                         in.readString(ProtocolLimits.MAX_IDENTIFIER_BYTES), in.readInt(), in.readInt(),
                         checkedCount(in, 0, 4225, "chunk batch")))));
         registry.register(type(21, CorePackets.ChunkColumnData.class, PacketDirection.SERVER_TO_CLIENT, play,
@@ -222,12 +235,13 @@ public final class CoreProtocol {
                 PacketCodec.of((out, p) -> {
                     out.writeVarLong(p.batchId()); out.writeVarInt(p.fragmentIndex());
                     out.writeVarInt(p.fragmentCount()); out.writeVarInt(p.totalLength());
+                    out.writeVarInt(p.decodedLength());
                     java.nio.ByteBuffer data = p.dataView();
                     out.writeVarInt(data.remaining());
                     out.writeRawBytes(data);
                 }, in -> {
-                    try { return new CorePackets.ChunkColumnFragment(in.readVarLong(), in.readVarInt(),
-                            in.readVarInt(), in.readVarInt(),
+                    try { return CorePackets.ChunkColumnFragment.takeOwnership(in.readVarLong(), in.readVarInt(),
+                            in.readVarInt(), in.readVarInt(), in.readVarInt(),
                             in.readByteArray(CorePackets.ChunkColumnFragment.MAX_FRAGMENT_BYTES)); }
                     catch (IllegalArgumentException e) { throw new ProtocolException("Invalid chunk fragment", e); }
                 })));
@@ -766,8 +780,9 @@ public final class CoreProtocol {
             if (wordCount != expectedLongs) throw new ProtocolException("Invalid packed palette word count");
             long[] words = new long[wordCount];
             for (int w = 0; w < wordCount; w++) words[w] = in.readLong();
+            validatePackedPaletteIndices(words, bits, paletteSize);
             try {
-                sections.add(new ChunkSectionSnapshot(sectionY, nonAir, palette, bits, words,
+                sections.add(ImmutableChunkSectionData.takeOwnership(sectionY, nonAir, palette, bits, words,
                         readLight(in), readLight(in)));
             } catch (IllegalArgumentException e) {
                 throw new ProtocolException("Invalid chunk section", e);
@@ -791,7 +806,7 @@ public final class CoreProtocol {
             for (int i = 0; i < blockEntityCount; i++) {
                 blockEntities.add(readBlockEntity(in));
             }
-            return new ChunkColumnSnapshot(dimension, chunkX, chunkZ, revision, sections,
+            return ImmutableChunkColumnData.takeOwnership(dimension, chunkX, chunkZ, revision, sections,
                     biomes, grass, foliage, heightmap, blockEntities);
         } catch (IllegalArgumentException e) {
             throw new ProtocolException("Invalid chunk column", e);
@@ -804,8 +819,8 @@ public final class CoreProtocol {
         out.writeVarInt(blockEntity.y());
         out.writeByte(blockEntity.localZ());
         out.writeString(blockEntity.typeId(), ProtocolLimits.MAX_IDENTIFIER_BYTES);
-        byte[] data = blockEntity.dataView();
-        out.writeVarInt(data.length);
+        java.nio.ByteBuffer data = blockEntity.dataBuffer();
+        out.writeVarInt(data.remaining());
         out.writeRawBytes(data);
     }
 
@@ -817,7 +832,8 @@ public final class CoreProtocol {
         int dataLength = checkedCount(in, 0, BlockEntitySnapshot.MAX_DATA_BYTES,
                 "block entity data");
         try {
-            return new BlockEntitySnapshot(localX, y, localZ, typeId, in.readRawBytes(dataLength));
+            return BlockEntitySnapshot.takeOwnership(
+                    localX, y, localZ, typeId, in.readRawBytes(dataLength));
         } catch (IllegalArgumentException invalid) {
             throw new ProtocolException("Invalid block entity", invalid);
         }
@@ -833,7 +849,27 @@ public final class CoreProtocol {
         if (modeId >= LightPlane.Mode.values().length) throw new ProtocolException("Invalid light mode");
         LightPlane.Mode mode = LightPlane.Mode.values()[modeId];
         int bytes = mode == LightPlane.Mode.PACKED_NIBBLES ? LightPlane.PACKED_BYTES : 0;
-        return new LightPlane(mode, in.readRawBytes(bytes));
+        return LightPlane.takeOwnership(mode, in.readRawBytes(bytes));
+    }
+
+    /** The remote trust boundary: packed indices are checked once while decoding. */
+    private static void validatePackedPaletteIndices(long[] words, int bits, int paletteSize)
+            throws ProtocolException {
+        if (bits == 0) {
+            if (paletteSize != 1) throw new ProtocolException("Zero-bit section has multiple palette entries");
+            return;
+        }
+        long mask = (1L << bits) - 1L;
+        for (int index = 0; index < ChunkSectionSnapshot.VOLUME; index++) {
+            long bitIndex = (long) index * bits;
+            int wordIndex = (int) (bitIndex >>> 6);
+            int offset = (int) (bitIndex & 63);
+            long value = words[wordIndex] >>> offset;
+            if (offset + bits > 64) value |= words[wordIndex + 1] << (64 - offset);
+            if ((value & mask) >= paletteSize) {
+                throw new ProtocolException("Packed palette index exceeds palette size");
+            }
+        }
     }
 
     private static void writeRgb24(PacketBuffer out, int value) throws ProtocolException {

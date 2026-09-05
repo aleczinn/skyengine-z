@@ -29,6 +29,7 @@ public final class NettyTransportServer implements AutoCloseable {
     private final Executor batchEncoder;
     private final ExecutorService ownedBatchEncoder;
     private final Function<CorePackets.ServerStatusRequest, CorePackets.ServerStatusResponse> statusResponder;
+    private final ReplicationPayloadCache payloadCache;
     private Channel serverChannel;
 
     public NettyTransportServer(PacketRegistry registry, int maximumFrameBytes,
@@ -45,10 +46,19 @@ public final class NettyTransportServer implements AutoCloseable {
                                 Consumer<NettyTransportConnection> acceptor,
                                 Function<CorePackets.ServerStatusRequest,
                                         CorePackets.ServerStatusResponse> statusResponder) {
+        this(registry, maximumFrameBytes, encoderThreads, acceptor, statusResponder, null);
+    }
+
+    public NettyTransportServer(PacketRegistry registry, int maximumFrameBytes, int encoderThreads,
+                                Consumer<NettyTransportConnection> acceptor,
+                                Function<CorePackets.ServerStatusRequest,
+                                        CorePackets.ServerStatusResponse> statusResponder,
+                                de.skyengine.server.world.ReplicationCacheBudget cacheBudget) {
         this.registry = Objects.requireNonNull(registry);
         this.maximumFrameBytes = maximumFrameBytes;
         this.acceptor = Objects.requireNonNull(acceptor);
         this.statusResponder = statusResponder;
+        this.payloadCache = new ReplicationPayloadCache(cacheBudget);
         if (encoderThreads < 0 || encoderThreads > 256) throw new IllegalArgumentException("Invalid encoder threads");
         if (encoderThreads == 0) {
             this.ownedBatchEncoder = null;
@@ -64,6 +74,21 @@ public final class NettyTransportServer implements AutoCloseable {
         }
     }
 
+    /** Dedicated production path: wire work shares the world's fair CPU scheduler. */
+    public NettyTransportServer(PacketRegistry registry, int maximumFrameBytes, Executor batchEncoder,
+                                Consumer<NettyTransportConnection> acceptor,
+                                Function<CorePackets.ServerStatusRequest,
+                                        CorePackets.ServerStatusResponse> statusResponder,
+                                de.skyengine.server.world.ReplicationCacheBudget cacheBudget) {
+        this.registry = Objects.requireNonNull(registry);
+        this.maximumFrameBytes = maximumFrameBytes;
+        this.acceptor = Objects.requireNonNull(acceptor);
+        this.statusResponder = statusResponder;
+        this.payloadCache = new ReplicationPayloadCache(cacheBudget);
+        this.ownedBatchEncoder = null;
+        this.batchEncoder = Objects.requireNonNull(batchEncoder);
+    }
+
     public synchronized void bind(InetSocketAddress address) throws InterruptedException {
         if (this.serverChannel != null) throw new IllegalStateException("Server is already bound");
         ServerBootstrap bootstrap = new ServerBootstrap()
@@ -77,7 +102,7 @@ public final class NettyTransportServer implements AutoCloseable {
                     @Override protected void initChannel(SocketChannel channel) {
                         NettyTransportConnection.Handler handler = new NettyTransportConnection.Handler();
                         NettyTransportConnection connection = new NettyTransportConnection(channel, registry, true,
-                                batchEncoder, statusResponder);
+                                batchEncoder, statusResponder, payloadCache);
                         handler.connection(connection);
                         channel.pipeline().addLast("frame", new VarIntFrameDecoder(maximumFrameBytes));
                         channel.pipeline().addLast("packet", handler);
@@ -97,5 +122,6 @@ public final class NettyTransportServer implements AutoCloseable {
         this.boss.shutdownGracefully().syncUninterruptibly();
         this.workers.shutdownGracefully().syncUninterruptibly();
         if (this.ownedBatchEncoder != null) this.ownedBatchEncoder.shutdownNow();
+        this.payloadCache.close();
     }
 }

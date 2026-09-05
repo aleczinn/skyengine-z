@@ -1,5 +1,8 @@
 package de.skyengine.game.world.chunk.palette;
 
+import de.skyengine.shared.world.ImmutableIntArray;
+import de.skyengine.shared.world.ImmutableLongArray;
+
 import java.util.Arrays;
 
 /**
@@ -15,6 +18,7 @@ public final class PalettedContainer {
 
     private final int size;
     private int[] palette;
+    private ImmutableIntArray frozenPalette;
     private int paletteSize;
     private BitStorage storage;   // null => Single-Value (palette[0])
     private int nonAir;
@@ -43,9 +47,28 @@ public final class PalettedContainer {
         this.nonAir = nonAir;
     }
 
+    private PalettedContainer(int size, ImmutableIntArray palette, BitStorage storage, int nonAir) {
+        if (palette.length() < 1) throw new IllegalArgumentException("Ungültige Paletten-Größe: 0");
+        this.size = size;
+        this.frozenPalette = palette;
+        this.paletteSize = palette.length();
+        this.storage = storage;
+        this.nonAir = nonAir;
+    }
+
+    /** Adopts immutable replicated data and copies only the component first mutated. */
+    public static PalettedContainer adoptImmutable(int size, ImmutableIntArray palette,
+                                                   int bitsPerEntry,
+                                                   ImmutableLongArray packedIndices,
+                                                   int nonAir) {
+        BitStorage storage = bitsPerEntry == 0 ? null
+                : BitStorage.adoptImmutable(bitsPerEntry, size, packedIndices);
+        return new PalettedContainer(size, palette, storage, nonAir);
+    }
+
     public int get(int index) {
-        if (this.storage == null) return this.palette[0];
-        return this.palette[this.storage.get(index)];
+        if (this.storage == null) return paletteAt(0);
+        return paletteAt(this.storage.get(index));
     }
 
     public void set(int index, int stateId) {
@@ -69,16 +92,17 @@ public final class PalettedContainer {
 
     public int singleValue() {
         if (this.storage != null) throw new IllegalStateException("Container ist nicht einwertig");
-        return this.palette[0];
+        return paletteAt(0);
     }
 
     /* Liefert (oder vergibt) den Paletten-Index einer State-ID; vergrößert Palette/Storage.
        Linearer Scan über die (typisch winzige) Palette - allokationsfrei und ohne Boxing. */
     private int idFor(int stateId) {
         for (int i = 0; i < this.paletteSize; i++) {
-            if (this.palette[i] == stateId) return i;
+            if (paletteAt(i) == stateId) return i;
         }
 
+        ensureMutablePalette();
         int id = this.paletteSize;
         if (id == this.palette.length) this.palette = Arrays.copyOf(this.palette, this.palette.length * 2);
         this.palette[this.paletteSize++] = stateId;
@@ -105,7 +129,21 @@ public final class PalettedContainer {
     /* --- Zugriff für Persistenz (Phase: Chunk-Save) --- */
 
     public int[] paletteEntries() {
-        return Arrays.copyOf(this.palette, this.paletteSize);
+        if (this.palette != null) return Arrays.copyOf(this.palette, this.paletteSize);
+        return this.frozenPalette.copy();
+    }
+
+    /** Immutable section payload. Unchanged palettes/words are shared by later revisions. */
+    public FrozenData freezeData() {
+        if (this.frozenPalette == null) {
+            int[] exact = Arrays.copyOf(this.palette, this.paletteSize);
+            this.frozenPalette = ImmutableIntArray.takeOwnership(exact);
+            this.palette = null;
+        }
+        ImmutableLongArray indices = this.storage == null
+                ? ImmutableLongArray.takeOwnership(new long[0]) : this.storage.freezeData();
+        return new FrozenData(this.frozenPalette, indices,
+                this.storage == null ? 0 : this.storage.bitsPerEntry(), this.nonAir);
     }
 
     public BitStorage storage() {
@@ -115,4 +153,18 @@ public final class PalettedContainer {
     public int nonAir() {
         return this.nonAir;
     }
+
+    private int paletteAt(int index) {
+        return this.palette != null ? this.palette[index] : this.frozenPalette.get(index);
+    }
+
+    private void ensureMutablePalette() {
+        if (this.palette != null) return;
+        int capacity = Math.max(4, this.paletteSize * 2);
+        this.palette = Arrays.copyOf(this.frozenPalette.copy(), capacity);
+        this.frozenPalette = null;
+    }
+
+    public record FrozenData(ImmutableIntArray palette, ImmutableLongArray packedIndices,
+                             int bitsPerEntry, int nonAir) { }
 }

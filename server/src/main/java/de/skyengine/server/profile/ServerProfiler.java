@@ -59,4 +59,12 @@ public final class ServerProfiler {
         for (Phase phase : Phase.values()) result.put(phase, stats(phase));
         return Map.copyOf(result);
     }
+
+    /** Tick-thread reset used to separate warm-world measurements from their cold-load warmup. */
+    public void reset() {
+        for (long[] phaseSamples : this.samples.values()) Arrays.fill(phaseSamples, 0);
+        this.starts.clear();
+        this.cursor = 0;
+        this.count = 0;
+    }
 }

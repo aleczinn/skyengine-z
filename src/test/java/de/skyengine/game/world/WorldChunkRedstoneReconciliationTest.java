@@ -1,6 +1,7 @@
 package de.skyengine.game.world;
 
 import de.skyengine.game.entity.ItemFrameEntity;
+import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.world.block.BlockPos;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
@@ -238,6 +239,7 @@ final class WorldChunkRedstoneReconciliationTest {
         private static final Method PROCESS_READY;
         private static final Method PROCESS_UNLOADED;
         private static final Field GAME_TIME_FIELD;
+        private static final Field ACTIVE_PLAYERS_FIELD;
         private static final Method TICK_SCHEDULED;
 
         static {
@@ -252,6 +254,8 @@ final class WorldChunkRedstoneReconciliationTest {
                 PROCESS_UNLOADED.setAccessible(true);
                 GAME_TIME_FIELD = Dimension.class.getDeclaredField("gameTime");
                 GAME_TIME_FIELD.setAccessible(true);
+                ACTIVE_PLAYERS_FIELD = Dimension.class.getDeclaredField("activePlayers");
+                ACTIVE_PLAYERS_FIELD.setAccessible(true);
                 TICK_SCHEDULED = Dimension.class.getDeclaredMethod("tickScheduled");
                 TICK_SCHEDULED.setAccessible(true);
             } catch (ReflectiveOperationException e) {
@@ -263,6 +267,7 @@ final class WorldChunkRedstoneReconciliationTest {
 
         TestWorld() throws ReflectiveOperationException {
             super("__chunk_redstone_test", level(), null, null);
+            ACTIVE_PLAYERS_FIELD.set(this, List.of(new EntityPlayer()));
             Field field = Dimension.class.getDeclaredField("chunkManager");
             field.setAccessible(true);
             this.manager = (ChunkManager) field.get(this);

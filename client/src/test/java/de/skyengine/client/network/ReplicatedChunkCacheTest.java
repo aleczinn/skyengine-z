@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -16,6 +17,41 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class ReplicatedChunkCacheTest {
+    @Test
+    void dependencyHaloInstallsForNeighbourReadsWithoutBecomingVisible() throws Exception {
+        AtomicReference<Boolean> installedVisible = new AtomicReference<>();
+        AtomicReference<Boolean> visibilityUpdate = new AtomicReference<>();
+        ReplicatedChunkCache cache = new ReplicatedChunkCache(new ReplicatedChunkCache.Listener() {
+            @Override public void chunkLoaded(ChunkColumnSnapshot chunk) { }
+            @Override public java.util.concurrent.CompletionStage<Void> chunkLoadedAsync(
+                    ChunkColumnSnapshot chunk, boolean visible) {
+                installedVisible.set(visible);
+                return java.util.concurrent.CompletableFuture.completedFuture(null);
+            }
+            @Override public void chunkVisibilityChanged(String dimension, int chunkX, int chunkZ,
+                                                         boolean visible) {
+                visibilityUpdate.set(visible);
+            }
+            @Override public void chunkUnloaded(String dimension, int chunkX, int chunkZ) { }
+            @Override public void blocksChanged(String dimension, int chunkX, int chunkZ, long revision,
+                                                List<BlockChange> changes) { }
+        });
+        cache.accept(new CorePackets.ChunkViewUpdate("skyengine:overworld", 0, 0, 2, 1, 1));
+        ChunkColumnSnapshot halo = emptyChunk(3, 1);
+        cache.accept(new CorePackets.ChunkBatchStart(70, 700, 1,
+                halo.dimension(), halo.chunkX(), halo.chunkZ(), 1));
+        cache.accept(new CorePackets.ChunkColumnData(70, halo));
+        cache.accept(new CorePackets.ChunkBatchEnd(70));
+
+        assertEquals(Boolean.FALSE, installedVisible.get());
+        assertNotNull(cache.get(halo.dimension(), halo.chunkX(), halo.chunkZ()),
+                "dependency data remains available to collision/light/edge reads");
+
+        cache.accept(new CorePackets.ChunkViewUpdate("skyengine:overworld", 1, 0, 2, 1, 2));
+        assertEquals(Boolean.TRUE, visibilityUpdate.get(),
+                "a retained halo column can become visible without retransmission");
+    }
+
     @Test
     void completedBatchPublishesAtomicallyAndCoalescedRevisionJumpsAreAccepted() throws Exception {
         AtomicInteger loads = new AtomicInteger();
@@ -71,6 +107,23 @@ class ReplicatedChunkCacheTest {
 
         assertNotNull(cache.get(chunk.dimension(), 0, 0));
         assertEquals(12, cache.get(chunk.dimension(), 0, 0).revision());
+    }
+
+    @Test
+    void wholeSnapshotCompressionIsDecodedOnceBeforeAtomicInstall() throws Exception {
+        ReplicatedChunkCache cache = new ReplicatedChunkCache(null);
+        ChunkColumnSnapshot chunk = emptyChunk(13);
+        byte[] encoded = de.skyengine.shared.network.CoreProtocol.encodeChunkSnapshot(chunk);
+        byte[] compressed = com.github.luben.zstd.Zstd.compress(encoded, 3);
+
+        cache.accept(new CorePackets.ChunkBatchStart(13, 130, chunk.dimension(), 0, 0, 1));
+        cache.accept(CorePackets.ChunkColumnFragment.takeOwnership(
+                13, 0, 1, compressed.length, encoded.length, compressed));
+        cache.accept(new CorePackets.ChunkBatchEnd(13));
+        cache.drainCompletedBatchIds();
+
+        assertNotNull(cache.get(chunk.dimension(), 0, 0));
+        assertEquals(13, cache.get(chunk.dimension(), 0, 0).revision());
     }
 
     @Test
@@ -231,8 +284,88 @@ class ReplicatedChunkCacheTest {
         assertNotNull(cache.get(current.dimension(), 0, 0));
     }
 
+    @Test
+    void viewEpochEvictsTrailsAndRejectsLateOldViewSnapshots() throws Exception {
+        ReplicatedChunkCache cache = new ReplicatedChunkCache(null);
+        ChunkColumnSnapshot origin = emptyChunk(0, 1);
+        cache.accept(new CorePackets.ChunkBatchStart(50, 500, 0,
+                origin.dimension(), 0, 0, 1));
+        cache.accept(new CorePackets.ChunkColumnData(50, origin));
+        cache.accept(new CorePackets.ChunkBatchEnd(50));
+        assertNotNull(cache.get(origin.dimension(), 0, 0));
+
+        cache.accept(new CorePackets.ChunkViewUpdate(origin.dimension(), 10, 0, 2, 1, 2));
+        assertNull(cache.get(origin.dimension(), 0, 0));
+
+        cache.accept(new CorePackets.ChunkBatchStart(51, 501, 1,
+                origin.dimension(), 0, 0, 1));
+        cache.accept(new CorePackets.ChunkColumnData(51, origin));
+        cache.accept(new CorePackets.ChunkBatchEnd(51));
+        assertNull(cache.get(origin.dimension(), 0, 0));
+        assertEquals(List.of(new ReplicatedChunkCache.AppliedBatch(50, 500),
+                        new ReplicatedChunkCache.AppliedBatch(51, 501)),
+                cache.drainCompletedBatchIds());
+    }
+
+    @Test
+    void lateOldEpochStillInstallsAChunkRetainedByTheNewView() throws Exception {
+        ReplicatedChunkCache cache = new ReplicatedChunkCache(null);
+        ChunkColumnSnapshot retained = emptyChunk(2, 1);
+        cache.accept(new CorePackets.ChunkBatchStart(52, 502, 1,
+                retained.dimension(), 2, 0, 1));
+
+        // Center moved, but chunk 2/0 remains inside the new view.
+        cache.accept(new CorePackets.ChunkViewUpdate(retained.dimension(), 3, 0, 2, 1, 2));
+        cache.accept(new CorePackets.ChunkColumnData(52, retained));
+        cache.accept(new CorePackets.ChunkBatchEnd(52));
+
+        assertNotNull(cache.get(retained.dimension(), 2, 0));
+        assertEquals(List.of(new ReplicatedChunkCache.AppliedBatch(52, 502)),
+                cache.drainCompletedBatchIds());
+    }
+
+    @Test
+    void newerDeltaCannotBeOverwrittenByAnOlderPreparedSnapshot() throws Exception {
+        java.util.concurrent.CompletableFuture<Void> delayed = new java.util.concurrent.CompletableFuture<>();
+        AtomicInteger preparations = new AtomicInteger();
+        AtomicInteger discarded = new AtomicInteger();
+        ReplicatedChunkCache cache = new ReplicatedChunkCache(new ReplicatedChunkCache.Listener() {
+            @Override public void chunkLoaded(ChunkColumnSnapshot chunk) { }
+            @Override public java.util.concurrent.CompletionStage<Void> chunkLoadedAsync(
+                    ChunkColumnSnapshot chunk) {
+                return preparations.getAndIncrement() == 0
+                        ? java.util.concurrent.CompletableFuture.completedFuture(null) : delayed;
+            }
+            @Override public void discardDecodedChunk(ChunkColumnSnapshot chunk) { discarded.incrementAndGet(); }
+            @Override public void chunkUnloaded(String dimension, int chunkX, int chunkZ) { }
+            @Override public void blocksChanged(String dimension, int chunkX, int chunkZ, long revision,
+                                                List<BlockChange> changes) { }
+        });
+        ChunkColumnSnapshot baseline = emptyChunk(1);
+        cache.accept(new CorePackets.ChunkBatchStart(60, 600, baseline.dimension(), 0, 0, 1));
+        cache.accept(new CorePackets.ChunkColumnData(60, baseline));
+        cache.accept(new CorePackets.ChunkBatchEnd(60));
+        cache.drainCompletedBatchIds();
+
+        ChunkColumnSnapshot olderSnapshot = emptyChunk(2);
+        cache.accept(new CorePackets.ChunkBatchStart(61, 601, olderSnapshot.dimension(), 0, 0, 1));
+        cache.accept(new CorePackets.ChunkColumnData(61, olderSnapshot));
+        cache.accept(new CorePackets.ChunkBatchEnd(61));
+        cache.accept(new CorePackets.BlockUpdate(olderSnapshot.dimension(), 0, 0, 3,
+                new BlockChange(1, 2, 3, 0)));
+        delayed.complete(null);
+        cache.drainCompletedBatchIds();
+
+        assertEquals(3, cache.get(olderSnapshot.dimension(), 0, 0).revision());
+        assertEquals(1, discarded.get());
+    }
+
     private static ChunkColumnSnapshot emptyChunk(long revision) {
-        return new ChunkColumnSnapshot("skyengine:overworld", 0, 0, revision, List.of(),
+        return emptyChunk(0, revision);
+    }
+
+    private static ChunkColumnSnapshot emptyChunk(int chunkX, long revision) {
+        return new ChunkColumnSnapshot("skyengine:overworld", chunkX, 0, revision, List.of(),
                 new int[ChunkColumnSnapshot.COLUMN_CELLS], new int[ChunkColumnSnapshot.TINT_CORNERS],
                 new int[ChunkColumnSnapshot.TINT_CORNERS], new int[ChunkColumnSnapshot.COLUMN_CELLS]);
     }

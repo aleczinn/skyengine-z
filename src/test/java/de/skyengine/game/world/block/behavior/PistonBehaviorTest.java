@@ -1,6 +1,7 @@
 package de.skyengine.game.world.block.behavior;
 
 import de.skyengine.game.world.Dimension;
+import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.world.block.BlockPos;
 import de.skyengine.game.world.block.BlockRegistry;
 import de.skyengine.game.world.block.Blocks;
@@ -419,6 +420,7 @@ final class PistonBehaviorTest {
         private static final Field CHUNKS_FIELD;
         private static final Field GAME_TIME_FIELD;
         private static final Field HANDLING_TICK_FIELD;
+        private static final Field ACTIVE_PLAYERS_FIELD;
         private static final Method TICK_SCHEDULED;
         private static final Method PROCESS_BLOCK_EVENTS;
 
@@ -430,6 +432,8 @@ final class PistonBehaviorTest {
                 GAME_TIME_FIELD.setAccessible(true);
                 HANDLING_TICK_FIELD = Dimension.class.getDeclaredField("handlingTick");
                 HANDLING_TICK_FIELD.setAccessible(true);
+                ACTIVE_PLAYERS_FIELD = Dimension.class.getDeclaredField("activePlayers");
+                ACTIVE_PLAYERS_FIELD.setAccessible(true);
                 TICK_SCHEDULED = Dimension.class.getDeclaredMethod("tickScheduled");
                 TICK_SCHEDULED.setAccessible(true);
                 PROCESS_BLOCK_EVENTS = Dimension.class.getDeclaredMethod("processBlockEvents");
@@ -451,6 +455,7 @@ final class PistonBehaviorTest {
         @SuppressWarnings("unchecked")
         private ClockWorld() throws ReflectiveOperationException {
             super("__piston_clock_test", clockLevel(), null, null);
+            ACTIVE_PLAYERS_FIELD.set(this, List.of(new EntityPlayer()));
             this.chunk.status = ChunkStatus.READY;
             ((Map<Long, Chunk>) CHUNKS_FIELD.get(this.getChunkManager()))
                     .put(Chunk.key(0, 0), this.chunk);

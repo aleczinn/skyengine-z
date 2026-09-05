@@ -1,5 +1,6 @@
 package de.skyengine.game.world;
 
+import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkManager;
@@ -271,6 +272,7 @@ final class WorldScheduledTickPersistenceTest {
         private static final Field CHUNK_MANAGER_FIELD;
         private static final Field GAME_TIME_FIELD;
         private static final Field UNLOAD_QUEUE_FIELD;
+        private static final Field ACTIVE_PLAYERS_FIELD;
         private static final Method TICK_SCHEDULED;
         private static final Method PROCESS_UNLOADED;
 
@@ -284,6 +286,8 @@ final class WorldScheduledTickPersistenceTest {
                 GAME_TIME_FIELD.setAccessible(true);
                 UNLOAD_QUEUE_FIELD = ChunkManager.class.getDeclaredField("unloadAnnounceQueue");
                 UNLOAD_QUEUE_FIELD.setAccessible(true);
+                ACTIVE_PLAYERS_FIELD = Dimension.class.getDeclaredField("activePlayers");
+                ACTIVE_PLAYERS_FIELD.setAccessible(true);
                 TICK_SCHEDULED = Dimension.class.getDeclaredMethod("tickScheduled");
                 TICK_SCHEDULED.setAccessible(true);
                 PROCESS_UNLOADED = Dimension.class.getDeclaredMethod("processUnloadedChunkBoundaries");
@@ -295,6 +299,11 @@ final class WorldScheduledTickPersistenceTest {
 
         TestWorld() {
             super("__scheduled_tick_persistence_test", level(), null, null);
+            try {
+                ACTIVE_PLAYERS_FIELD.set(this, List.of(new EntityPlayer()));
+            } catch (IllegalAccessException e) {
+                throw new AssertionError(e);
+            }
         }
 
         @SuppressWarnings("unchecked")

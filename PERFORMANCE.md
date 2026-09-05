@@ -259,29 +259,49 @@ werden.
 
 ## Multiplayer-L0-Streaming messen
 
-Der Dedicated Server verwendet standardmäßig `availableProcessors * 5 / 8` World-Worker; der
-Remote-Client bis zu acht eigene Decode-/Mesh-Worker. Beim Integrated Server gibt es dagegen
-keine feste Aufteilung: Server-Worldgen, Snapshot-Aufbau, Client-Decode und Meshing teilen sich
-`availableProcessors - 4` gewichtete, starvation-freie Worker. Die Werte werden beim Start
-ausgegeben und lassen sich für Dedicated Server über `worker-threads` fest einstellen.
+Integrated und Dedicated benutzen dieselbe logische Pipeline aus Interest, Revision,
+`ImmutableChunkColumnData`, Snapshotcache, Installation und Client-Meshing. LocalTransport gibt
+das immutable Snapshotobjekt ohne Wire-Encoding, Kompression oder Remote-Validierung weiter.
+TCP encodiert dieselbe Revision genau einmal, komprimiert sie optional einmal und decodiert sie
+direkt in die finale gepackte Clientrepräsentation. Mehrere Spieler teilen Snapshot-, Encoding-
+und Kompressionsarbeit.
+
+Die Streaming-Footprints sind dabei phasenspezifisch. Sichtbare Chunks und der eine für
+Nachbarzugriffe benötigte Client-Halo werden bis `LIT` vorbereitet. Der folgende reine
+Server-Dependency-Ring endet bei `DECORATED`, der äußere Ring bei `GENERATED`. Reine
+Serverdependencies werden weder repliziert noch clientseitig installiert oder gemesht. Die
+Footprints sind geometrisch exakt um die kreisförmige Sichtweite erweitert; an diagonalen
+Grenzen fehlen daher keine Mesher-Nachbarn.
+
+Der Dedicated Server verwendet standardmäßig `availableProcessors - 2` gemeinsame CPU-Worker.
+Worldgen, Features, Lighting, Snapshot-Freeze, Encoding und Kompression werden in gewichteten,
+alternden Fairness-Lanes ausgeführt. Server-Tick, Netty-Eventloops und Region-IO bleiben separate
+Owner-Threads. Beim Integrated Server teilen sich Worldgen, Snapshot-Aufbau, Client-Decode und
+Meshing denselben arbeitskonservierenden Pool gleicher Größe; es gibt keine statisch reservierten
+Client-/Server-Workergruppen. `worker-threads` kann den Dedicated-Wert explizit überschreiben.
 
 Für einen reproduzierbaren manuellen Cold-Streaming-Lauf:
 
 1. Server und Client mit derselben Welt, Renderdistanz und Blickrichtung starten.
-2. Unmittelbar nach `PLAY`, nach vollständig sichtbarem Radius und nach einer festen
-   Spectator-Flugroute jeweils `net` und `perf` in der Serverkonsole ausführen.
+2. Vor dem Lauf `profile start` und danach `profile`, `net` und `perf` in der Serverkonsole
+   ausführen: unmittelbar nach `PLAY`, nach vollständig sichtbarem Radius und nach einer festen
+   Spectator-Flugroute.
 3. `pending/in-flight/ready/ack/applied`, World-Worker-Auslastung, Queues, TX-Bytes und
    Chunk-Encoding-Zeit zusammen mit der Zeit bis zum geschlossenen sichtbaren Radius notieren.
-4. Für Loopback beachten: TCP-Chunkdaten sind unkomprimiert und erhalten 128 MiB/s; das
-   Bytebudget wird von Netty unabhängig vom 20-TPS-Takt abgearbeitet. Echte Remote-Verbindungen
-   verwenden `chunk-bytes-per-second` und optional Zstd.
+4. Zusätzlich Cachebytes, Hits/Creates/Requests, Leases, allokierte/kopierte/Wire-Bytes und die
+   Queue-Wartezeiten jeder Scheduler-Lane erfassen. Das gemeinsame Replikations-Cachebudget ist
+   über `-Dskyengine.replication-cache-bytes=<Bytes>` konfigurierbar.
 
-Bei schneller Bewegung werden wartende Worldgen-Stufen außerhalb des aktuellen gemeinsamen
-Spielerinteresses abgebrochen und verbleibende Aufgaben neu nach Nähe und Bewegungsrichtung
-eingereiht. Der Load-Vorlauf ist auf ungefähr zwei Aufgaben pro World-Worker begrenzt. Auf der
-Netzwerkseite dürfen pro Spieler höchstens 16 vollständige Chunkbatches auf eine Clientbestätigung
-warten; veraltete, noch nicht kodierte Batches sind abbrechbar. Diese Grenzen sollen bei einem
-Flugtest verhindern, dass alte Koordinaten minutenlang vor der aktuellen Sichtfront liegen.
+Bei schneller Bewegung werden nur Jobs abgebrochen, deren gemeinsames Interest-/Dependency-
+Ticket wirklich entfallen ist. Eine Richtungsänderung bewertet wartende Arbeit neu, startet sie
+aber nicht neu. Ein `ChunkViewEpoch` entfernt Trails ohne tausende einzelne Unload-Pakete; ein
+älterer Batch bleibt dennoch gültig, wenn seine Koordinate auch in der neuen View benötigt wird.
+Admission erfolgt vor dem Freeze über Byte-/Arbeit-Credits; nach der atomaren Clientinstallation
+gibt der ACK die Lease sofort frei. Transiente Snapshotfehler werden mit begrenztem Backoff
+wiederholt. Fehlende Installations-ACKs lösen nach dem konfigurierten Connection-Timeout die
+Lease und die Verbindung, statt alte Revisionen unbegrenzt zu pinnen. `/net` weist dafür
+Retry-/Timeout-/Resync-Zähler sowie Ready-/ACK-Bytes separat aus. Development-Läufe können mit
+`-Dskyengine.debug.replicationLeaseAssertions=true` beim Serverabbau hängende Lease-Owner melden.
 
 Der automatisierte Protokoll-/Session-Lasttest bleibt:
 
@@ -289,9 +309,101 @@ Der automatisierte Protokoll-/Session-Lasttest bleibt:
 .\gradlew.bat multiplayerLoadTest -Pplayers=8 -Pseconds=10
 ```
 
-Er ersetzt keinen visuellen Chunkstreaming-Lauf, prüft aber Sessions, Tickzeiten und begrenzte
-Queues ohne Renderer. Ein Streamingvergleich ist nur gültig, wenn sichtbare Renderdistanz,
-Meshing-Halo, Weltzustand, Kompression und Workerzahl identisch dokumentiert sind.
+Für den produktiven autoritativen Chunkpfad einschließlich Worldgen, Lighting, Snapshot-Freeze,
+Interest, LocalTransport, Leases und ACKs dient:
+
+```powershell
+.\gradlew.bat multiplayerPipelineLoadTest -Pplayers=8 -Pseconds=10 -PviewDistance=16 -Proute=fast
+```
+
+Nach der Flugphase wartet der Harness standardmäßig bis zu zehn Sekunden auf die aktuelle View.
+Das ist über `-PcatchUpSeconds=<Sekunden>` konfigurierbar. Er meldet dabei die tatsächliche
+Flugdistanz, residente Serverchunks sowie sichtbare, residente und präsentierte Clientchunks;
+damit ist ein am Ende der Messzeit noch laufender Stream von einem dauerhaft steckengebliebenen
+Chunk unterscheidbar.
+
+Dieser Lauf schreibt `tools/build/reports/multiplayer/multiplayer-pipeline-load.json`. Der Bericht
+enthält getrennte Snapshot-/Encoded-/Compressed-Cachebytes, Requests/Hits/Creates, Evictions,
+Pins und Lease-Alter sowie allokierte, kopierte, direkte und erzeugte Wire-Bytes. Damit ist bei
+überlappenden Spielern prüfbar, dass teure Arbeit mit eindeutigen Chunkrevisionen statt mit
+`Spieler × Chunks` skaliert.
+
+Der äquivalente Dedicated-Lauf verwendet echte TCP-Frames, Chunkfragmentierung, optionales
+Zstd, validierendes Decode und dieselbe finale `ReplicatedChunkCache`-Installation:
+
+```powershell
+.\gradlew.bat multiplayerDedicatedLoadTest -Pplayers=8 -Pseconds=10 -PviewDistance=16 -Proute=fast
+```
+
+Für die von Cold-Worldgen getrennte Delta-/COW-Messung warten zwei weitere Aufgaben zunächst
+auf eine vollständig präsentierte, arbeitsseitig ruhige Welt. Erst danach wechseln die Bots
+Blöcke mit einer globalen, konfigurierbaren Rate und der Tick-/Chunkprofiler wird an einer
+sauberen Tickgrenze zurückgesetzt:
+
+```powershell
+.\gradlew.bat multiplayerWarmWorldLoadTest -Pplayers=32 -Pseconds=10 `
+  -PviewDistance=8 -PmutationRate=100
+.\gradlew.bat multiplayerDedicatedWarmWorldLoadTest -Pplayers=32 -Pseconds=10 `
+  -PviewDistance=8 -PmutationRate=100
+```
+
+Der JSON-Bericht trennt dabei Requests, bestätigte/abgelehnte Aktionen, beobachtete
+Clientzustandswechsel sowie ausschließlich während der Warm-Phase erzeugte Pakete, Wire-Bytes,
+Snapshots, Allokationen und Kopien vom vorausgehenden Cold-Load. `L0_CLIENT_DELTA_COW` und
+`clientDeltaCowBytes` weisen zusätzlich Zeit und neu angelegte immutable Sectiondaten für
+bestätigte Blockänderungen aus.
+
+`ChunkTransportConvergenceTest` speist dieselbe Serverrevision einmal als direkte immutable
+LocalTransport-Nachricht und einmal über das kanonische Wire-Encoding samt validierendem Decode
+in zwei Client-Caches. Auch wenn neuere Blockdeltas die Basis überholen, müssen beide Pfade
+bitgenau auf derselben Revision konvergieren; die geteilte Serverrevision darf dabei nicht
+mutiert werden.
+
+Beide Modi nacheinander mit identischem Seed, Workerlimit, maximalem Bytebudget und derselben
+Route startet der Dreiervergleich einschließlich der nicht produktiven direkten Referenz:
+
+```powershell
+.\gradlew.bat multiplayerComparisonLoadTest -Pplayers=8 -Pseconds=10 `
+  -PviewDistance=16 -Proute=fast -Pseed=123456789 -PbandwidthMiB=128 -Pworkers=30
+```
+
+`cleanupReferenceLoadTest` misst ausschließlich den ehemaligen direkten
+Terrain→Features→Light→Mesh-Datenfluss. Er ist von keinem Menü und keiner produktiven Session
+erreichbar. Für einen fairen Vergleich lädt er fünf explizit ausgewiesene Dependency-Ringe,
+damit exakt alle Chunks innerhalb der angeforderten sichtbaren Distanz meshingfähig sind:
+
+```powershell
+.\gradlew.bat cleanupReferenceLoadTest -PviewDistance=32 -Pseed=123456789 -Pworkers=30
+```
+
+Die Integrated-/Dedicated-Harnesses akzeptieren denselben `-Pworkers`-Parameter. Der Vergleich
+ist nur gültig, wenn `presentedVisibleChunks` beziehungsweise `presentedClientChunks` jeweils
+der identischen erwarteten sichtbaren Chunkanzahl entspricht; die zusätzlichen direkten,
+serverseitigen und clientseitigen Resident-Chunks werden getrennt ausgewiesen.
+
+Die Bots verwenden die produktive `ClientNetworkSession`, `ChunkManager`,
+`ReplicatedChunkWorldAdapter` und den produktiven `ChunkMesher`. Ein simulierter GPU-Upload
+markiert exakt die fertig gemeshten Sections als präsentiert. Ein Batch wird erst nach
+Fragment-Reassembly, Decode, Revisionsprüfung und atomarer Chunkinstallation bestätigt. Der Report enthält
+zusätzlich installierte, residente und entladene Clientchunks, Zeit bis zum ersten Chunk, zur
+lokalen Kollisionsnachbarschaft und zur vollständigen sichtbaren View sowie RX/TX-Bytes,
+Worker-Lane-Wartezeiten und Cache-/Lease-Zustände. Damit werden auch stehengebliebene Streams
+und Chunktrails sichtbar; ein bloß empfangenes `ChunkBatchEnd` zählt nicht als Erfolg.
+
+Der Harness verarbeitet und bestätigt alle empfangenen Chunkbatches und schreibt standardmäßig
+`tools/build/reports/multiplayer/multiplayer-load.json`. Ein JFR-Lauf ist verfügbar mit:
+
+```powershell
+.\gradlew.bat multiplayerLoadJfr -Pplayers=32 -Pseconds=30
+```
+
+Er ersetzt keinen visuellen Chunkstreaming-Lauf, prüft aber Sessions, Tickzeiten, Backpressure,
+Leases und begrenzte Queues ohne Renderer. Ein Streamingvergleich ist nur gültig, wenn Seed,
+frische Welt, JVM, sichtbare Chunkanzahl, Dependency-Halo, Flugroute, Kompression und Workerzahl
+identisch dokumentiert sind. Verbindliche Produktionsszenarien sind RD16, RD32, schneller Flug,
+zwei überlappende Spieler und 1/8/32 Spieler. Neben Chunks/s zählen insbesondere Zeit bis zur
+spielbaren Welt, Zeit bis zur vollen View sowie Interest→CollisionReady/RenderReady/Presented
+(Median/p95). Cleanup bleibt ausschließlich Performance- und Verhaltensreferenz.
 
 ## Neue Baseline eintragen
 

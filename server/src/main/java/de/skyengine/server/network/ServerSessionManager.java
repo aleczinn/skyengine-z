@@ -60,10 +60,28 @@ public final class ServerSessionManager implements AutoCloseable {
     public record NetworkSnapshot(int players, long receivedPackets, long receivedBytes, long sentPackets,
                                   long sentBytes, int inboundQueue, int outboundQueue,
                                   double medianRttMillis, double p95RttMillis, int trackedChunks,
+                                  int residentServerChunks,
                                   long chunkBatchesEncoded, long chunkPacketsEncoded,
                                   double chunkEncodingMillis, int chunksPending, int snapshotsInFlight,
-                                  int chunksReadyToSend, int chunksAwaitingAck, int chunksApplied,
-                                  int worldWorkers, int activeWorldWorkers, int queuedWorldTasks) {}
+                                  int chunkSnapshotRetriesPending, int chunksReadyToSend,
+                                  int chunksAwaitingAck, int chunksApplied, long chunksReadyBytes,
+                                  long chunksAwaitingAckBytes, long chunkSnapshotRetries,
+                                  long chunkAckTimeouts, long chunkResyncRequests,
+                                  int worldWorkers, int activeWorldWorkers, int queuedWorldTasks,
+                                  long logicalSnapshotBytes, long encodedCacheBytes,
+                                  long compressedCacheBytes, long replicationCacheBytes,
+                                  long cacheEvictions, long cachePinnedBytes, long activeSnapshotLeases,
+                                  long oldestLeaseAgeNanos, long snapshotRequests, long snapshotCacheHits,
+                                  long snapshotCreates, long encodeRequests, long encodeCacheHits,
+                                  long encodeCreates, long compressionRequests, long compressionCacheHits,
+                                  long compressionCreates,
+                                  long snapshotBytesAllocated, long bytesCopied,
+                                  long wireBytesProduced, long directBufferBytes,
+                                  long encodedBytesSaved, long compressedBytesSaved,
+                                  long pinnedRevisionCount,
+                                  List<ServerWorldRuntime.WorkerLaneStats> workerLanes) {
+        public NetworkSnapshot { workerLanes = List.copyOf(workerLanes); }
+    }
     private static final int MAX_PACKETS_PER_SESSION_PER_TICK = 512;
     private final ServerConfig config;
     private final IdentityProvider identities;
@@ -114,7 +132,8 @@ public final class ServerSessionManager implements AutoCloseable {
         this.registryFingerprint = RegistryFingerprint.compute(this.registryMappings);
         this.events = events;
         this.profiler = profiler;
-        this.chunks = new ChunkReplicationService(world);
+        this.chunks = new ChunkReplicationService(world, System::nanoTime,
+                java.util.concurrent.TimeUnit.SECONDS.toNanos(config.timeoutSeconds()));
     }
 
     public synchronized void accept(TransportConnection connection) {
@@ -179,10 +198,40 @@ public final class ServerSessionManager implements AutoCloseable {
         double p95 = rtts.isEmpty() ? 0 : rtts.get((int) Math.ceil(rtts.size() * 0.95) - 1) / 1_000_000.0;
         var stream = this.chunks.stats();
         var workers = this.world.workerStats();
+        var budget = this.world.replicationCacheBudget();
+        var cache = budget == null ? null : budget.metrics();
+        var traffic = budget == null ? null : budget.trafficMetrics();
         return new NetworkSnapshot(players, rxPackets, rxBytes, txPackets, txBytes, inbound, outbound,
-                median, p95, tracked, encodedBatches, encodedPackets, encodingNanos / 1_000_000.0,
-                stream.pending(), stream.snapshotInFlight(), stream.readyToSend(), stream.awaitingAck(),
-                stream.applied(), workers.workers(), workers.active(), workers.queued());
+                median, p95, tracked, this.world.residentChunkCount(), encodedBatches, encodedPackets,
+                encodingNanos / 1_000_000.0,
+                stream.pending(), stream.snapshotInFlight(), stream.delayedRetries(),
+                stream.readyToSend(), stream.awaitingAck(), stream.applied(), stream.readyBytes(),
+                stream.awaitingAckBytes(), stream.snapshotRetries(), stream.acknowledgementTimeouts(),
+                stream.resyncRequests(), workers.workers(), workers.active(), workers.queued(),
+                cache == null ? 0 : cache.logicalSnapshotBytes(),
+                cache == null ? 0 : cache.encodedCacheBytes(),
+                cache == null ? 0 : cache.compressedCacheBytes(),
+                cache == null ? 0 : cache.replicationCacheBytesTotal(),
+                cache == null ? 0 : cache.cacheEvictions(),
+                cache == null ? 0 : cache.cachePinnedBytes(),
+                cache == null ? 0 : cache.activeSnapshotLeases(),
+                cache == null ? 0 : cache.oldestLeaseAgeNanos(),
+                cache == null ? 0 : cache.snapshotRequests(),
+                cache == null ? 0 : cache.snapshotCacheHits(),
+                cache == null ? 0 : cache.snapshotCreates(),
+                cache == null ? 0 : cache.encodeRequests(),
+                cache == null ? 0 : cache.encodeCacheHits(),
+                cache == null ? 0 : cache.encodeCreates(),
+                cache == null ? 0 : cache.compressionRequests(),
+                cache == null ? 0 : cache.compressionCacheHits(),
+                cache == null ? 0 : cache.compressionCreates(),
+                traffic == null ? 0 : traffic.snapshotBytesAllocated(),
+                traffic == null ? 0 : traffic.bytesCopied(),
+                traffic == null ? 0 : traffic.wireBytesProduced(),
+                traffic == null ? 0 : traffic.directBufferBytes(),
+                traffic == null ? 0 : traffic.encodedBytesSaved(),
+                traffic == null ? 0 : traffic.compressedBytesSaved(),
+                cache == null ? 0 : cache.pinnedRevisionCount(), workers.lanes());
     }
 
     public void tick(long tick, long nowNanos) {
@@ -651,8 +700,14 @@ public final class ServerSessionManager implements AutoCloseable {
                 : new CorePackets.MultiBlockUpdate(changes.dimension(), changes.chunkX(), changes.chunkZ(),
                         changes.revision(), changes.changes());
         for (PlayerSession target : this.byIdentity.values()) {
-            if (target.state() == ConnectionState.PLAY && this.chunks.tracks(target,
-                    changes.dimension(), changes.chunkX(), changes.chunkZ())) target.send(update);
+            if (target.state() != ConnectionState.PLAY || !this.chunks.tracks(target,
+                    changes.dimension(), changes.chunkX(), changes.chunkZ())) continue;
+            if (!target.send(update)) {
+                // Reliable authoritative state must never disappear silently behind bulk
+                // streaming. The connection is removed on the next owner-thread pass.
+                target.connection().disconnect(DisconnectReason.INTERNAL_ERROR,
+                        "Reliable block update queue overflow");
+            }
         }
     }
 

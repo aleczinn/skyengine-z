@@ -16,6 +16,8 @@ public interface TransportConnection extends AutoCloseable {
     PacketEnvelope pollInbound();
     int inboundSize();
     int outboundSize();
+    /** True only when immutable typed messages cross an in-process trust boundary unchanged. */
+    default boolean transfersImmutableObjects() { return false; }
     default TransportStats stats() {
         return new TransportStats(0, 0, 0, 0, inboundSize(), outboundSize());
     }

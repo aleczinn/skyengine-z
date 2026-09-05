@@ -38,6 +38,7 @@ public final class MesherCensus {
         GameSettings settings = GameSettings.get();
         settings.ambientOcclusion = true;
         settings.leavesQuality = GameSettings.LeavesQuality.HIGH;
+        ChunkMesher.configure(true, false);
 
         /* Fixture erzeugt und beleuchtet das deterministische 3×3-Feld. */
         MesherFixture.Grid fixture = MesherFixture.generated();

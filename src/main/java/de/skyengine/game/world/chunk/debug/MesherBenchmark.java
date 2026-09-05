@@ -128,7 +128,10 @@ public final class MesherBenchmark {
                                            long timerOverheadNanos,
                                            ChunkMesher.VisibilityPath visibilityPath,
                                            ChunkMesher.OverlayPath overlayPath, Mode mode) {
-        GameSettings.get().ambientOcclusion = scenario.ambientOcclusion;
+        GameSettings settings = GameSettings.get();
+        settings.ambientOcclusion = scenario.ambientOcclusion;
+        ChunkMesher.configure(scenario.ambientOcclusion,
+                settings.leavesQuality == GameSettings.LeavesQuality.LOW);
         PhaseCollector phases = new PhaseCollector();
         ChunkMesher mesher = new ChunkMesher(phases, null, visibilityPath, overlayPath);
         for (int i = 0; i < warmups; i++) meshRound(mesher, scenario, null, null, null);
