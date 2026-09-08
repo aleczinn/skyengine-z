@@ -14,14 +14,26 @@ public final class ServerCommandDispatcher {
     public record Result(boolean success, List<String> messages) {
         public Result { messages = List.copyOf(messages); }
     }
+    public record Suggestions(List<String> lines, String hint) {
+        public Suggestions {
+            lines = List.copyOf(lines);
+            hint = hint == null ? "" : hint;
+        }
+    }
+
+    private static final List<String> MODES = List.of("creative", "spectator", "survival");
+    private static final List<String> SERVER_COMMANDS = List.of(
+            "list", "ping", "tps", "perf", "profile", "net", "gamemode", "gm", "tp");
 
     private final ServerApplication server;
 
     ServerCommandDispatcher(ServerApplication server) { this.server = server; }
 
     public Result execute(String input, PlayerSession source) {
-        String command = input.strip();
-        if (command.startsWith("/")) command = command.substring(1);
+        String value = input == null ? "" : input.strip();
+        String canonical = value.startsWith("/") ? value : "/" + value;
+        if (canonical.startsWith("//")) return gameplay(canonical, source);
+        String command = canonical.substring(1).strip();
         String[] parts = command.split("\\s+", 2);
         String name = parts.length == 0 ? "" : parts[0].toLowerCase(Locale.ROOT);
         return switch (name) {
@@ -34,10 +46,56 @@ public final class ServerCommandDispatcher {
             case "profile" -> profile(parts);
             case "net" -> network();
             case "gamemode", "gm" -> gameMode(parts, source);
+            case "tp", "teleport" -> teleport(parts, source);
             case "kick" -> source == null ? kick(parts) : denied();
             case "stop" -> source == null ? stop() : denied();
-            default -> new Result(false, List.of("Unknown command"));
+            default -> gameplay(canonical, source);
         };
+    }
+
+    public Suggestions suggest(String input, PlayerSession source) {
+        String value = input == null ? "" : input;
+        String canonical = value.startsWith("/") ? value : "/" + value;
+        List<String> result = new java.util.ArrayList<>(
+                source == null || source.identity() == null ? List.of()
+                        : this.server.worldRuntime().suggestPlayerCommand(source.identity(), canonical));
+        String hint = source == null || source.identity() == null ? ""
+                : this.server.worldRuntime().hintPlayerCommand(source.identity(), canonical);
+        if (canonical.startsWith("//")) return new Suggestions(distinctSorted(result), hint);
+
+        String body = canonical.substring(1);
+        int firstSpace = body.indexOf(' ');
+        if (firstSpace < 0) {
+            String prefix = body.toLowerCase(Locale.ROOT);
+            SERVER_COMMANDS.stream().filter(name -> name.startsWith(prefix))
+                    .map(name -> "/" + name).forEach(result::add);
+            if (prefix.equals("gamemode") || prefix.equals("gm")) hint = gamemodeHint("");
+            else if (prefix.equals("tp") || prefix.equals("teleport")) hint = teleportHint("");
+            else if (prefix.equals("profile")) hint = " <start|stop|reset|status>";
+        } else {
+            String name = body.substring(0, firstSpace).toLowerCase(Locale.ROOT);
+            String tail = body.substring(firstSpace + 1);
+            if (name.equals("gamemode") || name.equals("gm")) {
+                addGamemodeSuggestions(result, "/" + name, tail);
+                hint = gamemodeHint(tail);
+            } else if (name.equals("tp") || name.equals("teleport")) {
+                addTeleportSuggestions(result, "/" + name, tail);
+                hint = teleportHint(tail);
+            } else if (name.equals("profile")) {
+                addTailSuggestions(result, "/profile", tail, List.of("start", "stop", "reset", "status"));
+                hint = " <start|stop|reset|status>";
+            }
+        }
+        return new Suggestions(distinctSorted(result), hint);
+    }
+
+    private Result gameplay(String command, PlayerSession source) {
+        if (source == null || source.identity() == null) {
+            return new Result(false, List.of("This gameplay command requires a player"));
+        }
+        de.skyengine.game.command.CommandResult result =
+                this.server.worldRuntime().executePlayerCommand(source.identity(), command);
+        return new Result(result.success(), result.messages());
     }
 
     private Result list() {
@@ -162,19 +220,23 @@ public final class ServerCommandDispatcher {
             return new Result(false, List.of("Usage: gamemode <survival|creative|spectator> [player]"));
         }
         String[] arguments = parts[1].strip().split("\\s+");
+        if (arguments.length > 2) return new Result(false,
+                List.of("Usage: gamemode <mode> or gamemode <player> <mode>"));
+        PlayerGameMode firstMode = parseMode(arguments[0]);
         PlayerGameMode mode;
-        try { mode = PlayerGameMode.valueOf(arguments[0].toUpperCase(Locale.ROOT)); }
-        catch (IllegalArgumentException invalid) {
-            return new Result(false, List.of("Unknown game mode: " + arguments[0]));
+        PlayerSession target;
+        if (arguments.length == 1) {
+            mode = firstMode;
+            target = source;
+        } else if (firstMode != null) {
+            // Retain the old console-friendly <mode> <player> spelling as an alias.
+            mode = firstMode;
+            target = findPlayer(arguments[1]);
+        } else {
+            target = findPlayer(arguments[0]);
+            mode = parseMode(arguments[1]);
         }
-        PlayerSession target = source;
-        if (arguments.length >= 2) {
-            if (source != null) return denied();
-            target = this.server.sessions().sessions().stream()
-                    .filter(player -> player.identity() != null
-                            && player.identity().name().equalsIgnoreCase(arguments[1]))
-                    .findFirst().orElse(null);
-        }
+        if (mode == null) return new Result(false, List.of("Unknown game mode"));
         if (target == null) {
             return new Result(false, List.of(source == null
                     ? "Console must specify a player" : "Player not found"));
@@ -184,6 +246,146 @@ public final class ServerCommandDispatcher {
         }
         return new Result(true, List.of("Set " + target.identity().name() + " to "
                 + mode.name().toLowerCase(Locale.ROOT)));
+    }
+
+    private Result teleport(String[] parts, PlayerSession source) {
+        if (parts.length < 2 || parts[1].isBlank()) {
+            return new Result(false, List.of("Usage: tp <player> | tp <x> <y> <z> | tp <player> <x> <y> <z>"));
+        }
+        String[] args = parts[1].strip().split("\\s+");
+        PlayerSession target = source;
+        PlayerSession destinationPlayer = null;
+        int coordinateOffset = 0;
+        if (args.length == 1) {
+            destinationPlayer = findPlayer(args[0]);
+            if (source == null) return new Result(false, List.of("Console must specify a target and coordinates"));
+        } else if (args.length == 4) {
+            target = findPlayer(args[0]);
+            coordinateOffset = 1;
+        } else if (args.length != 3) {
+            return new Result(false, List.of("Usage: tp <player> | tp <x> <y> <z> | tp <player> <x> <y> <z>"));
+        }
+        if (target == null || (args.length == 1 && destinationPlayer == null)) {
+            return new Result(false, List.of("Player not found"));
+        }
+        String dimension;
+        double x, y, z;
+        float yaw, pitch;
+        if (destinationPlayer != null) {
+            var destination = destinationPlayer.playerState();
+            dimension = destination.dimension(); x = destination.x(); y = destination.y(); z = destination.z();
+            yaw = destination.yaw(); pitch = destination.pitch();
+        } else {
+            try {
+                x = coordinate(args[coordinateOffset]);
+                y = coordinate(args[coordinateOffset + 1]);
+                z = coordinate(args[coordinateOffset + 2]);
+            } catch (IllegalArgumentException invalid) {
+                return new Result(false, List.of("Invalid coordinates"));
+            }
+            var current = target.playerState();
+            dimension = current.dimension(); yaw = current.yaw(); pitch = current.pitch();
+        }
+        if (!this.server.sessions().teleport(target, dimension, x, y, z, yaw, pitch)) {
+            return new Result(false, List.of("Teleport failed"));
+        }
+        return new Result(true, List.of("Teleported " + target.identity().name()
+                + " to " + format(x) + " " + format(y) + " " + format(z)));
+    }
+
+    private PlayerSession findPlayer(String value) {
+        return this.server.sessions().sessions().stream()
+                .filter(player -> player.identity() != null && player.playerState() != null)
+                .filter(player -> player.identity().name().equalsIgnoreCase(value)
+                        || player.identity().uuid().toString().equalsIgnoreCase(value))
+                .findFirst().orElse(null);
+    }
+
+    private List<String> playerNames() {
+        return this.server.sessions().sessions().stream()
+                .filter(player -> player.identity() != null && player.playerState() != null)
+                .map(player -> player.identity().name()).sorted(String.CASE_INSENSITIVE_ORDER).toList();
+    }
+
+    private static PlayerGameMode parseMode(String value) {
+        try { return PlayerGameMode.valueOf(value.toUpperCase(Locale.ROOT)); }
+        catch (IllegalArgumentException invalid) { return null; }
+    }
+
+    private static double coordinate(String value) {
+        double parsed = Double.parseDouble(value);
+        if (!Double.isFinite(parsed)) throw new IllegalArgumentException();
+        return parsed;
+    }
+
+    private static String format(double value) {
+        return value == Math.rint(value) ? Long.toString((long) value) : Double.toString(value);
+    }
+
+    private void addGamemodeSuggestions(List<String> result, String command, String tail) {
+        List<String> completed = tokens(tail);
+        boolean trailing = tail.endsWith(" ");
+        String current = trailing || completed.isEmpty() ? "" : completed.removeLast();
+        List<String> candidates;
+        if (completed.isEmpty()) {
+            candidates = new java.util.ArrayList<>(MODES);
+            candidates.addAll(playerNames());
+        } else if (completed.size() == 1) {
+            candidates = parseMode(completed.getFirst()) == null ? MODES : playerNames();
+        } else return;
+        appendCandidates(result, command, completed, current, candidates);
+    }
+
+    private void addTeleportSuggestions(List<String> result, String command, String tail) {
+        List<String> completed = tokens(tail);
+        boolean trailing = tail.endsWith(" ");
+        String current = trailing || completed.isEmpty() ? "" : completed.removeLast();
+        if (!completed.isEmpty()) return;
+        appendCandidates(result, command, completed, current, playerNames());
+    }
+
+    private static void addTailSuggestions(List<String> result, String command, String tail,
+                                           List<String> candidates) {
+        List<String> completed = tokens(tail);
+        boolean trailing = tail.endsWith(" ");
+        String current = trailing || completed.isEmpty() ? "" : completed.removeLast();
+        if (!completed.isEmpty()) return;
+        appendCandidates(result, command, completed, current, candidates);
+    }
+
+    private static void appendCandidates(List<String> result, String command, List<String> completed,
+                                         String current, List<String> candidates) {
+        String prefix = current.toLowerCase(Locale.ROOT);
+        String fixed = command + " " + (completed.isEmpty() ? "" : String.join(" ", completed) + " ");
+        candidates.stream().filter(candidate -> candidate.toLowerCase(Locale.ROOT).startsWith(prefix))
+                .map(candidate -> fixed + candidate).forEach(result::add);
+    }
+
+    private static List<String> tokens(String input) {
+        List<String> result = new java.util.ArrayList<>();
+        for (String token : input.strip().split("\\s+")) if (!token.isEmpty()) result.add(token);
+        return result;
+    }
+
+    private static String gamemodeHint(String tail) {
+        int count = tokens(tail).size();
+        return count == 0 ? " <creative|survival|spectator> | <player> <mode>"
+                : count == 1 ? " <mode|player>" : "";
+    }
+
+    private static String teleportHint(String tail) {
+        int count = tokens(tail).size();
+        return switch (count) {
+            case 0 -> " <player> | <x> <y> <z> | <player> <x> <y> <z>";
+            case 1 -> " <y> <z> | <x> <y> <z>";
+            case 2 -> " <z> | <y> <z>";
+            case 3 -> " <z>";
+            default -> "";
+        };
+    }
+
+    private static List<String> distinctSorted(List<String> values) {
+        return values.stream().distinct().sorted(String.CASE_INSENSITIVE_ORDER).limit(128).toList();
     }
 
     private Result stop() {

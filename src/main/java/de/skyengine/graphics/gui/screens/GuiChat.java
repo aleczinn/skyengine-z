@@ -21,6 +21,18 @@ import java.util.function.Consumer;
 /** Nicht pausierender Singleplayer-Chat zur Eingabe und Vervollstaendigung von Befehlen. */
 public final class GuiChat extends GuiScreen {
 
+    public record RemoteSuggestions(String input, List<String> suggestions, String hint) {
+        public RemoteSuggestions {
+            suggestions = List.copyOf(suggestions);
+            hint = hint == null ? "" : hint;
+        }
+    }
+
+    @FunctionalInterface
+    public interface RemoteSuggestionProvider {
+        void request(String input, Consumer<RemoteSuggestions> callback);
+    }
+
     private static final float INPUT_HEIGHT = ChatHud.LINE_HEIGHT;
     private static final float CHAT_BOTTOM_OFFSET = 40F;
     private static final int MAX_INPUT_LENGTH = 256;
@@ -32,6 +44,7 @@ public final class GuiChat extends GuiScreen {
     private final CommandContext context;
     private final ChatHud chatHud;
     private final Consumer<String> remoteSubmit;
+    private final RemoteSuggestionProvider remoteSuggestions;
     private String draft;
     private String historyDraft = "";
     private int historyIndex = -1;
@@ -39,6 +52,8 @@ public final class GuiChat extends GuiScreen {
     private List<String> completions = List.of();
     private int completionIndex;
     private boolean completionApplied;
+    private String requestedSuggestionInput;
+    private String suggestionHint = "";
     private int scrollLines;
     private int lastVisualLineCount = -1;
 
@@ -48,15 +63,18 @@ public final class GuiChat extends GuiScreen {
         this.context = context;
         this.chatHud = chatHud;
         this.remoteSubmit = null;
+        this.remoteSuggestions = null;
         this.draft = initial;
     }
 
-    public GuiChat(ChatManager chat, ChatHud chatHud, String initial, Consumer<String> remoteSubmit) {
+    public GuiChat(ChatManager chat, ChatHud chatHud, String initial, Consumer<String> remoteSubmit,
+                   RemoteSuggestionProvider remoteSuggestions) {
         super(null);
         this.chat = chat;
         this.context = null;
         this.chatHud = chatHud;
         this.remoteSubmit = java.util.Objects.requireNonNull(remoteSubmit);
+        this.remoteSuggestions = java.util.Objects.requireNonNull(remoteSuggestions);
         this.draft = initial;
     }
 
@@ -78,10 +96,7 @@ public final class GuiChat extends GuiScreen {
     public void render(GuiManager gui, double mouseX, double mouseY) {
         /* Solange der Chat offen ist, bleibt das Eingabefeld der einzige Texteingabefokus. */
         this.input.setFocused(true);
-        if (this.completions.isEmpty()) {
-            this.completions = this.context == null ? List.of()
-                    : this.chat.suggestions(this.context, this.input.getText());
-        }
+        this.refreshSuggestions();
         float inputY = this.input.y;
         /* Minecraft haengt die letzte Chatzeile auch bei offener Eingabe oberhalb der Hotbar ein;
            sie sitzt nicht unmittelbar auf dem Eingabefeld am unteren Bildschirmrand. */
@@ -108,7 +123,7 @@ public final class GuiChat extends GuiScreen {
 
         gui.font().begin(gui.vWidth(), gui.vHeight());
         this.input.renderText(gui, mouseX, mouseY);
-        String hint = this.context == null ? "" : this.chat.hint(this.input.getText());
+        String hint = this.context == null ? this.suggestionHint : this.chat.hint(this.input.getText());
         float hintX = this.input.x + 1F
                 + gui.font().getStringWidth(this.input.getText(), GuiText.NORMAL);
         if (!hint.isEmpty() && hintX < this.input.x + this.input.w - 1F) {
@@ -209,8 +224,7 @@ public final class GuiChat extends GuiScreen {
 
     private void complete() {
         if (this.completions.isEmpty()) {
-            this.completions = this.context == null ? List.of()
-                    : this.chat.suggestions(this.context, this.input.getText());
+            this.refreshSuggestions();
             this.completionIndex = 0;
         } else if (this.completionApplied) {
             this.completionIndex = (this.completionIndex + 1) % this.completions.size();
@@ -225,6 +239,26 @@ public final class GuiChat extends GuiScreen {
         this.completions = List.of();
         this.completionIndex = 0;
         this.completionApplied = false;
+        this.requestedSuggestionInput = null;
+        this.suggestionHint = "";
+    }
+
+    private void refreshSuggestions() {
+        String value = this.input.getText();
+        if (this.completionApplied && !this.completions.isEmpty()) return;
+        if (this.context != null) {
+            if (this.completions.isEmpty()) this.completions = this.chat.suggestions(this.context, value);
+            return;
+        }
+        if (value.equals(this.requestedSuggestionInput)) return;
+        this.requestedSuggestionInput = value;
+        this.remoteSuggestions.request(value, response -> {
+            if (!this.input.getText().equals(response.input())) return;
+            this.completions = response.suggestions();
+            this.suggestionHint = response.hint();
+            this.completionIndex = 0;
+            this.completionApplied = false;
+        });
     }
 
     private void scroll(GuiManager gui, int delta) {

@@ -394,10 +394,17 @@ public final class ParticleEngine implements ParticleSink {
     public void sprint(double px, double py, double pz, BlockState ground, double motionX, double motionZ) {
         BlockParticleSprite sprite = ground.getParticleSprite();
         if (!sprite.isPresent()) return;
-        this.spawnBlock(ParticlePriority.AMBIENT, px + jitter(0.3F), py + 0.1,
+        int index = this.spawnBlock(ParticlePriority.AMBIENT, px + jitter(0.3F), py + 0.1,
                 pz + jitter(0.3F), (float) (-motionX * 4.0),
                 1.5F, (float) (-motionZ * 4.0), sprite, vanillaQuadSize() * 0.5F,
                 ground.getRenderLayer() == de.skyengine.game.world.block.RenderLayer.TRANSLUCENT);
+        if (index >= 0) {
+            /* Die Werte oben sind Minecrafts angeforderte Richtung, nicht Geschwindigkeit pro
+               Tick. Particle normalisiert und skaliert sie im Konstruktor; ohne diesen Schritt
+               schossen die Blocksplitter mit vy=1.5 mehrere Bloecke hoch. */
+            this.setVanillaBaseVelocity(index, (float) (-motionX * 4.0), 1.5F,
+                    (float) (-motionZ * 4.0), 1F);
+        }
     }
 
     public void torch(double px, double py, double pz) {
@@ -819,9 +826,14 @@ public final class ParticleEngine implements ParticleSink {
     }
 
     private void setVanillaBaseVelocity(int index, float multiplier) {
-        double mx = (this.random.nextFloat() * 2F - 1F) * 0.4F;
-        double my = (this.random.nextFloat() * 2F - 1F) * 0.4F;
-        double mz = (this.random.nextFloat() * 2F - 1F) * 0.4F;
+        this.setVanillaBaseVelocity(index, 0F, 0F, 0F, multiplier);
+    }
+
+    private void setVanillaBaseVelocity(int index, float requestedX, float requestedY,
+                                        float requestedZ, float multiplier) {
+        double mx = requestedX + (this.random.nextFloat() * 2F - 1F) * 0.4F;
+        double my = requestedY + (this.random.nextFloat() * 2F - 1F) * 0.4F;
+        double mz = requestedZ + (this.random.nextFloat() * 2F - 1F) * 0.4F;
         double speed = (this.random.nextFloat() + this.random.nextFloat() + 1F) * 0.15F;
         double length = Math.max(1.0E-7, Math.sqrt(mx * mx + my * my + mz * mz));
         this.vx[index] = (float) (mx / length * speed * 0.4F) * multiplier;
@@ -844,12 +856,12 @@ public final class ParticleEngine implements ParticleSink {
                 0xFFFFFF, 1F, 0.06F);
     }
 
-    private void spawnBlock(ParticlePriority importance, double px, double py, double pz,
-                            float mx, float my, float mz, BlockParticleSprite sprite, float scale,
-                            boolean translucent) {
+    private int spawnBlock(ParticlePriority importance, double px, double py, double pz,
+                           float mx, float my, float mz, BlockParticleSprite sprite, float scale,
+                           boolean translucent) {
         int index = this.add(ParticleType.BLOCK, importance, px, py, pz, mx, my, mz,
                 sprite.textureLayer(), darken(this.tintAt(sprite, px, pz), 0.6F), 1F, scale);
-        if (index < 0) return;
+        if (index < 0) return -1;
         this.translucent[index] = (byte) (translucent ? 1 : 0);
         this.rotation[index] = 0F;
         float uOffset = this.random.nextFloat() * 3F;
@@ -858,6 +870,7 @@ public final class ParticleEngine implements ParticleSink {
         this.v0[index] = vOffset * 0.25F;
         this.u1[index] = (uOffset + 1F) * 0.25F;
         this.v1[index] = (vOffset + 1F) * 0.25F;
+        return index;
     }
 
     private int add(ParticleType kind, ParticlePriority importance,

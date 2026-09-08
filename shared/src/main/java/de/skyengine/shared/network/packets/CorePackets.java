@@ -181,6 +181,27 @@ public final class CorePackets {
     public record CommandResult(long commandId, boolean success, List<String> messages) implements Packet {
         public CommandResult { messages = List.copyOf(messages); }
     }
+    public record CommandSuggestionsRequest(long requestId, String input, int cursor) implements Packet {
+        public CommandSuggestionsRequest {
+            Objects.requireNonNull(input);
+            if (requestId < 0 || cursor < 0 || cursor > input.length()) {
+                throw new IllegalArgumentException("Invalid command suggestion request");
+            }
+        }
+    }
+    public record CommandSuggestionsResponse(long requestId, String input,
+                                             List<String> suggestions, String hint) implements Packet {
+        public CommandSuggestionsResponse {
+            Objects.requireNonNull(input);
+            suggestions = List.copyOf(suggestions);
+            hint = hint == null ? "" : hint;
+            if (requestId < 0 || suggestions.size() > 128) {
+                throw new IllegalArgumentException("Invalid command suggestions");
+            }
+        }
+    }
+    public record WorldEditAction(de.skyengine.shared.gameplay.WorldEditActionRequest request)
+            implements Packet { }
     public record EntitySpawn(NetworkEntitySnapshot entity) implements Packet {}
     public record EntityDespawn(int networkId, int reason) implements Packet {}
     public record EntityState(long serverTick, NetworkEntitySnapshot entity) implements Packet {}

@@ -75,4 +75,39 @@ class CoreProtocolTest {
                 registry.decode(PacketDirection.SERVER_TO_CLIENT, ConnectionState.HANDSHAKE, body).packet());
         assertEquals(source, decoded);
     }
+
+    @Test
+    void commandSuggestionsRoundTripOnTheChatChannel() throws Exception {
+        PacketRegistry registry = CoreProtocol.createRegistry();
+        CorePackets.CommandSuggestionsRequest request =
+                new CorePackets.CommandSuggestionsRequest(7, "/gamemode Am", 12);
+        byte[] requestBody = registry.encode(PacketDirection.CLIENT_TO_SERVER, ConnectionState.PLAY,
+                new PacketEnvelope(request));
+        DecodedPacket decodedRequest = registry.decode(PacketDirection.CLIENT_TO_SERVER,
+                ConnectionState.PLAY, requestBody);
+        assertEquals(request, decodedRequest.packet());
+        assertEquals(LogicalChannel.CHAT, decodedRequest.type().channel());
+
+        CorePackets.CommandSuggestionsResponse response = new CorePackets.CommandSuggestionsResponse(
+                7, "/gamemode Am", List.of("/gamemode AmberCrow7092"), " <mode>");
+        byte[] responseBody = registry.encode(PacketDirection.SERVER_TO_CLIENT, ConnectionState.PLAY,
+                new PacketEnvelope(response));
+        assertEquals(response, registry.decode(PacketDirection.SERVER_TO_CLIENT,
+                ConnectionState.PLAY, responseBody).packet());
+    }
+
+    @Test
+    void semanticWorldEditActionRoundTripsWithoutTransportSpecificGameplay() throws Exception {
+        PacketRegistry registry = CoreProtocol.createRegistry();
+        CorePackets.WorldEditAction source = new CorePackets.WorldEditAction(
+                new de.skyengine.shared.gameplay.WorldEditActionRequest(9,
+                        de.skyengine.shared.gameplay.WorldEditActionRequest.Action.PRIMARY_CLICK,
+                        "voxelstories:overworld", -12, 64, 7, 0));
+        byte[] body = registry.encode(PacketDirection.CLIENT_TO_SERVER, ConnectionState.PLAY,
+                new PacketEnvelope(source));
+        DecodedPacket decoded = registry.decode(PacketDirection.CLIENT_TO_SERVER,
+                ConnectionState.PLAY, body);
+        assertEquals(source, decoded.packet());
+        assertEquals(LogicalChannel.GAMEPLAY, decoded.type().channel());
+    }
 }

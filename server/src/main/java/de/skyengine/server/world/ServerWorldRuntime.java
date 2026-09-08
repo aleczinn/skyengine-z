@@ -14,6 +14,8 @@ import de.skyengine.shared.player.PlayerMovementState;
 import de.skyengine.shared.network.pack.PackDescriptor;
 import de.skyengine.shared.network.pack.RegistryMapping;
 import de.skyengine.game.physics.ChunkMovementLimiter;
+import de.skyengine.game.command.CommandResult;
+import de.skyengine.shared.gameplay.WorldEditActionRequest;
 
 import java.nio.file.Path;
 import java.util.Optional;
@@ -152,5 +154,22 @@ public interface ServerWorldRuntime extends AutoCloseable {
     }
     /** Records a harmless arm-swing presentation event for interested observers. */
     default void playerSwing(PlayerIdentity identity, int entityId) { }
+    /** Executes ordinary gameplay commands on the same tick-owned authority in every transport. */
+    default CommandResult executePlayerCommand(PlayerIdentity identity, String input) {
+        return CommandResult.error("Commands are unavailable");
+    }
+    default List<String> suggestPlayerCommand(PlayerIdentity identity, String input) { return List.of(); }
+    default String hintPlayerCommand(PlayerIdentity identity, String input) { return ""; }
+    default CommandResult handleWorldEditAction(PlayerIdentity identity,
+                                                WorldEditActionRequest request) {
+        return CommandResult.error("WorldEdit is unavailable");
+    }
+    /** Atomic authoritative teleport used by command routing, including dimension changes. */
+    default PlayerStateSnapshot teleportPlayer(PlayerIdentity identity, int entityId,
+                                               PlayerStateSnapshot previous, String dimension,
+                                               double x, double y, double z,
+                                               float yaw, float pitch, long serverTick) {
+        return previous;
+    }
     @Override void close();
 }

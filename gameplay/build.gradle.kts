@@ -48,6 +48,7 @@ sourceSets {
             // the same baked state/collision registry IDs as the client.
             "game/models/**",
             "game/items/**",
+            "game/lang/**",
             "game/creative_tabs.json",
             "game/recipes/**",
             "game/loot_table/**",

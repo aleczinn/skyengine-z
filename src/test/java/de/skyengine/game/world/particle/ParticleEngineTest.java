@@ -143,6 +143,25 @@ final class ParticleEngineTest {
     }
 
     @Test
+    void sprintDebrisNormalizesRequestedDirectionInsteadOfUsingItAsBlocksPerTick() {
+        GameSettings.get().particleQuality = GameSettings.ParticleQuality.ALL;
+        ParticleEngine engine = new ParticleEngine(new Random(42));
+        engine.sprint(0, 1, -3, Blocks.getState(Blocks.DIRT), 0.1, 0.0);
+
+        Camera camera = new Camera();
+        camera.update(1.0);
+        FloatBuffer before = FloatBuffer.allocate(ParticleEngine.INSTANCE_FLOATS);
+        assertEquals(1, engine.writeInstances(before, camera, 0F, false));
+        float initialY = before.get(1);
+        engine.tick();
+        FloatBuffer after = FloatBuffer.allocate(ParticleEngine.INSTANCE_FLOATS);
+        assertEquals(1, engine.writeInstances(after, camera, 1F, false));
+        float rise = after.get(1) - initialY;
+        assertTrue(rise > 0F && rise < 0.35F,
+                "Sprint debris must receive Minecraft's small normalized impulse, not vy=1.5");
+    }
+
+    @Test
     void multipartBlockBreakParticlesStayInsideIndividualShapeBoxes() {
         GameSettings.get().particleQuality = GameSettings.ParticleQuality.ALL;
         ParticleEngine engine = new ParticleEngine(new Random(9));

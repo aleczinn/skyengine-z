@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 /** Client-owner-thread handshake/configuration/play controller shared by local and TCP sessions. */
 public final class ClientNetworkSession {
@@ -69,6 +70,9 @@ public final class ClientNetworkSession {
     private final ReplicatedInventory inventory = new ReplicatedInventory();
     private final ReplicatedEntityCache entities = new ReplicatedEntityCache();
     private final Map<String, RegistryMapping> registries = new HashMap<>();
+    private final Map<Long, Consumer<CorePackets.CommandSuggestionsResponse>> suggestionRequests =
+            new HashMap<>();
+    private long nextSuggestionRequestId;
     private String username;
     private UUID requestedIdentity;
     private byte[] registryFingerprint;
@@ -159,6 +163,9 @@ public final class ClientNetworkSession {
     public void sendEntityAction(de.skyengine.shared.gameplay.EntityActionRequest request) {
         sendPlay(new CorePackets.EntityAction(request));
     }
+    public void sendWorldEditAction(de.skyengine.shared.gameplay.WorldEditActionRequest request) {
+        sendPlay(new CorePackets.WorldEditAction(request));
+    }
     public void sendInventoryAction(InventoryActionRequest request) { sendPlay(new CorePackets.InventoryAction(request)); }
     public void closeContainer(int containerId) {
         sendPlay(new CorePackets.ContainerClose(containerId));
@@ -169,6 +176,16 @@ public final class ClientNetworkSession {
     public void sendChat(String message) { sendPlay(new CorePackets.ChatMessageRequest(message)); }
     public void sendCommand(long commandId, String command) {
         sendPlay(new CorePackets.CommandRequest(commandId, command));
+    }
+    public void requestCommandSuggestions(String input, int cursor,
+                                          Consumer<CorePackets.CommandSuggestionsResponse> callback) {
+        Objects.requireNonNull(callback);
+        long requestId = ++this.nextSuggestionRequestId;
+        // The chat only displays the newest draft. Do not retain callbacks for rate-limited or
+        // overtaken requests indefinitely.
+        this.suggestionRequests.clear();
+        this.suggestionRequests.put(requestId, callback);
+        sendPlay(new CorePackets.CommandSuggestionsRequest(requestId, input, cursor));
     }
     public void requestChunkResync(ReplicatedChunkCache.ResyncRequest request) {
         sendPlay(new CorePackets.ChunkResyncRequest(request.dimension(), request.chunkX(), request.chunkZ(),
@@ -277,6 +294,11 @@ public final class ClientNetworkSession {
         else if (packet instanceof CorePackets.WorldSound sound) this.listener.worldSound(sound);
         else if (packet instanceof CorePackets.ChatMessage chat) this.listener.chatMessage(chat);
         else if (packet instanceof CorePackets.CommandResult result) this.listener.commandResult(result);
+        else if (packet instanceof CorePackets.CommandSuggestionsResponse response) {
+            Consumer<CorePackets.CommandSuggestionsResponse> callback =
+                    this.suggestionRequests.remove(response.requestId());
+            if (callback != null) callback.accept(response);
+        }
         else if (packet instanceof CorePackets.EntitySpawn spawn) this.entities.spawn(spawn);
         else if (packet instanceof CorePackets.EntityState state) this.entities.state(state);
         else if (packet instanceof CorePackets.EntityMetadata metadata) this.entities.metadata(metadata);

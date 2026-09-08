@@ -30,6 +30,7 @@ public final class PlayerSession {
     private long lastAbilityActionId = -1;
     private long lastHotbarActionId = -1;
     private long lastBlockActionId = -1;
+    private long lastWorldEditActionId = -1;
     private PlayerStateSnapshot playerState;
     /** Ordered movement intents awaiting the authoritative tick owner. */
     private final ArrayDeque<PlayerInputFrame> simulationInputs = new ArrayDeque<>();
@@ -47,6 +48,7 @@ public final class PlayerSession {
     private final TokenBucket gameplayLimit;
     private final TokenBucket inventoryLimit;
     private final TokenBucket chatLimit;
+    private final TokenBucket suggestionLimit;
 
     PlayerSession(TransportConnection connection, long nowNanos) {
         this.connection = Objects.requireNonNull(connection);
@@ -59,6 +61,7 @@ public final class PlayerSession {
         // Keep flood protection, but do not disconnect Mouse-Tweaks-style batched slot actions.
         this.inventoryLimit = new TokenBucket(80, 160, nowNanos);
         this.chatLimit = new TokenBucket(4, 8, nowNanos);
+        this.suggestionLimit = new TokenBucket(20, 40, nowNanos);
     }
 
     public TransportConnection connection() { return this.connection; }
@@ -81,6 +84,8 @@ public final class PlayerSession {
     void lastHotbarActionId(long value) { this.lastHotbarActionId = value; }
     long lastBlockActionId() { return this.lastBlockActionId; }
     void lastBlockActionId(long value) { this.lastBlockActionId = value; }
+    long lastWorldEditActionId() { return this.lastWorldEditActionId; }
+    void lastWorldEditActionId(long value) { this.lastWorldEditActionId = value; }
     boolean enqueueSimulationInput(PlayerInputFrame value) {
         if (this.simulationInputs.size() >= MAX_PENDING_INPUTS) return false;
         this.simulationInputs.addLast(value);
@@ -143,6 +148,7 @@ public final class PlayerSession {
     boolean allowGameplay(long nowNanos) { return this.gameplayLimit.tryConsume(1, nowNanos); }
     boolean allowInventory(long nowNanos) { return this.inventoryLimit.tryConsume(1, nowNanos); }
     boolean allowChat(long nowNanos) { return this.chatLimit.tryConsume(1, nowNanos); }
+    boolean allowSuggestion(long nowNanos) { return this.suggestionLimit.tryConsume(1, nowNanos); }
     public boolean send(de.skyengine.shared.network.Packet packet) { return this.connection.send(new PacketEnvelope(packet)); }
     public boolean send(de.skyengine.shared.network.Packet packet, long sequence) {
         return this.connection.send(new PacketEnvelope(packet, sequence));

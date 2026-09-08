@@ -476,6 +476,9 @@ public final class ServerSessionManager implements AutoCloseable {
         else if (packet instanceof CorePackets.BlockAction action) handleBlockAction(session, action.request(), nowNanos);
         else if (packet instanceof CorePackets.PlayerSwing swing) handleSwing(session, swing, nowNanos);
         else if (packet instanceof CorePackets.EntityAction action) handleEntityAction(session, action.request(), nowNanos);
+        else if (packet instanceof CorePackets.WorldEditAction action) {
+            handleWorldEditAction(session, action.request(), nowNanos);
+        }
         else if (packet instanceof CorePackets.InventoryAction action) handleInventory(session, action, nowNanos);
         else if (packet instanceof CorePackets.ContainerClose close) handleContainerClose(session, close);
         else if (packet instanceof CorePackets.ContainerOpenRequest) handleContainerOpenRequest(session, nowNanos);
@@ -494,6 +497,9 @@ public final class ServerSessionManager implements AutoCloseable {
         }
         else if (packet instanceof CorePackets.ChatMessageRequest chat) handleChat(session, chat.message(), nowNanos);
         else if (packet instanceof CorePackets.CommandRequest command) handleCommand(session, command, nowNanos);
+        else if (packet instanceof CorePackets.CommandSuggestionsRequest suggestions) {
+            handleCommandSuggestions(session, suggestions, nowNanos);
+        }
         else throw unexpected(packet);
     }
 
@@ -610,6 +616,58 @@ public final class ServerSessionManager implements AutoCloseable {
         session.playerState(next);
         session.sendPlayerState(next);
         this.lifecycleLogger.accept("Player game mode: " + session.identity().name() + " -> " + mode);
+        return true;
+    }
+
+    private void handleWorldEditAction(PlayerSession session,
+                                       de.skyengine.shared.gameplay.WorldEditActionRequest request,
+                                       long nowNanos) {
+        if (!session.allowGameplay(nowNanos)) return;
+        if (request.actionId() <= session.lastWorldEditActionId()) return;
+        session.lastWorldEditActionId(request.actionId());
+        PlayerStateSnapshot player = session.playerState();
+        if (player == null || !request.dimension().equals(player.dimension())) {
+            session.send(new CorePackets.CommandResult(request.actionId(), false,
+                    List.of("Wrong dimension")));
+            return;
+        }
+        if (request.action() == de.skyengine.shared.gameplay.WorldEditActionRequest.Action.PRIMARY_CLICK
+                || request.action() == de.skyengine.shared.gameplay.WorldEditActionRequest.Action.SECONDARY_CLICK) {
+            double dx = request.x() + 0.5 - player.x();
+            double dy = request.y() + 0.5 - (player.y() + 1.62);
+            double dz = request.z() + 0.5 - player.z();
+            if (dx * dx + dy * dy + dz * dz > 36) {
+                session.send(new CorePackets.CommandResult(request.actionId(), false,
+                        List.of("WorldEdit target is out of reach")));
+                return;
+            }
+        }
+        de.skyengine.game.command.CommandResult result =
+                this.world.handleWorldEditAction(session.identity(), request);
+        session.send(new CorePackets.CommandResult(request.actionId(), result.success(), result.messages()));
+    }
+
+    /** Tick-thread-only authoritative teleport used by the shared command layer. */
+    public boolean teleport(PlayerSession session, String dimension, double x, double y, double z,
+                            float yaw, float pitch) {
+        if (session == null || session.state() != ConnectionState.PLAY
+                || session.playerState() == null || session.identity() == null) return false;
+        PlayerStateSnapshot previous = session.playerState();
+        PlayerStateSnapshot next = this.world.teleportPlayer(session.identity(), session.entityId(),
+                previous, dimension, x, y, z, yaw, pitch, this.serverTick);
+        if (next == previous) return false;
+        if (!next.dimension().equals(previous.dimension()) && session.activeContainerId() != 0) {
+            this.world.closeContainer(session.identity(), session.activeContainerId());
+            session.activeContainerId(0);
+        }
+        session.playerState(next);
+        session.sendPlayerState(next);
+        int chunkX = floorChunk(next.x()), chunkZ = floorChunk(next.z());
+        session.interestCenterChanged(next.dimension(), chunkX, chunkZ);
+        this.chunks.updateInterest(session, next.dimension(), chunkX, chunkZ,
+                this.config.viewDistance(), CHUNK_MESH_HALO, 0, 0);
+        this.entities.updateInterest(session, next.dimension(), chunkX, chunkZ,
+                this.config.viewDistance());
         return true;
     }
 
@@ -851,6 +909,18 @@ public final class ServerSessionManager implements AutoCloseable {
                 ? new ServerCommandDispatcher.Result(false, List.of("Commands are unavailable"))
                 : this.commandDispatcher.execute(request.command(), session);
         session.send(new CorePackets.CommandResult(request.commandId(), result.success(), result.messages()));
+    }
+
+    private void handleCommandSuggestions(PlayerSession session,
+                                          CorePackets.CommandSuggestionsRequest request,
+                                          long nowNanos) {
+        if (!session.allowSuggestion(nowNanos)) return;
+        String input = request.input().substring(0, request.cursor());
+        ServerCommandDispatcher.Suggestions result = this.commandDispatcher == null
+                ? new ServerCommandDispatcher.Suggestions(List.of(), "")
+                : this.commandDispatcher.suggest(input, session);
+        session.send(new CorePackets.CommandSuggestionsResponse(request.requestId(), request.input(),
+                result.lines(), result.hint()));
     }
 
     private void maintain(PlayerSession session, long nowNanos) {

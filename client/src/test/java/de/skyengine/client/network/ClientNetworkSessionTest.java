@@ -4,6 +4,7 @@ import de.skyengine.server.ServerConfig;
 import de.skyengine.server.IntegratedServerHost;
 import de.skyengine.server.network.NettyTransportServer;
 import de.skyengine.server.network.ServerSessionManager;
+import de.skyengine.server.network.PlayerSession;
 import de.skyengine.server.player.OfflineIdentityProvider;
 import de.skyengine.server.world.ServerWorldRuntime;
 import de.skyengine.shared.EngineInfo;
@@ -20,6 +21,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -46,6 +48,116 @@ class ClientNetworkSessionTest {
         assertTrue(joined.get());
         assertEquals(1, server.sessions().size());
         server.close();
+    }
+
+    @Test
+    void localTransportReturnsAuthoritativeCommandSuggestionsAndHints() {
+        ServerWorldRuntime world = new ServerWorldRuntime() {
+            @Override public Path directory() { return temporaryDirectory; }
+            @Override public void tick(long serverTick) { }
+            @Override public void autosave(long serverTick) { }
+            @Override public List<String> suggestPlayerCommand(
+                    de.skyengine.server.player.PlayerIdentity identity, String input) {
+                return input.equals("/ki") ? List.of("/kill") : List.of();
+            }
+            @Override public String hintPlayerCommand(
+                    de.skyengine.server.player.PlayerIdentity identity, String input) {
+                return input.equals("/ki") ? " <target>" : "";
+            }
+            @Override public void close() { }
+        };
+        ServerConfig config = config(25565, 2);
+        try (de.skyengine.server.ServerApplication application =
+                     new de.skyengine.server.ServerApplication(config, world)) {
+            LocalTransport.Pair pair = LocalTransport.create();
+            application.sessions().accept(pair.server());
+            ClientNetworkSession client = session(pair.client(), new AtomicBoolean());
+            client.start("SuggestionPlayer", null);
+            long tick = 0;
+            while (client.state() != ConnectionState.PLAY && tick < 20) {
+                application.sessions().tick(tick++, 1_000_000L + tick);
+                client.update();
+            }
+            AtomicReference<CorePackets.CommandSuggestionsResponse> received = new AtomicReference<>();
+            client.requestCommandSuggestions("/ki", 3, received::set);
+            for (int i = 0; i < 4 && received.get() == null; i++) {
+                application.sessions().tick(tick++, 2_000_000L + tick);
+                client.update();
+            }
+            assertEquals(List.of("/kill"), received.get().suggestions());
+            assertEquals(" <target>", received.get().hint());
+        }
+    }
+
+    @Test
+    void playerTargetedGamemodeAndTeleportCommandsMutateServerAuthority() {
+        ServerWorldRuntime world = new ServerWorldRuntime() {
+            @Override public Path directory() { return temporaryDirectory; }
+            @Override public void tick(long serverTick) { }
+            @Override public void autosave(long serverTick) { }
+            @Override public de.skyengine.shared.player.PlayerStateSnapshot teleportPlayer(
+                    de.skyengine.server.player.PlayerIdentity identity, int entityId,
+                    de.skyengine.shared.player.PlayerStateSnapshot previous, String dimension,
+                    double x, double y, double z, float yaw, float pitch, long serverTick) {
+                return new de.skyengine.shared.player.PlayerStateSnapshot(serverTick,
+                        previous.lastProcessedInputSequence(), dimension, x, y, z, 0, 0, 0,
+                        yaw, pitch, false, previous.gameMode(), previous.movementState(),
+                        previous.health(), previous.foodLevel(), previous.saturation(),
+                        previous.selectedHotbarSlot(), previous.vehicleEntityId(),
+                        previous.spectatorFlySpeed());
+            }
+            @Override public void close() { }
+        };
+        ServerConfig config = config(25565, 2);
+        try (de.skyengine.server.ServerApplication application =
+                     new de.skyengine.server.ServerApplication(config, world)) {
+            LocalTransport.Pair firstPair = LocalTransport.create();
+            LocalTransport.Pair secondPair = LocalTransport.create();
+            application.sessions().accept(firstPair.server());
+            application.sessions().accept(secondPair.server());
+            AtomicReference<CorePackets.CommandResult> commandResult = new AtomicReference<>();
+            ClientNetworkSession first = new ClientNetworkSession(firstPair.client(),
+                    new ReplicatedChunkCache(null),
+                    packs -> ClientNetworkSession.PackValidation.acceptAll(),
+                    new ClientNetworkSession.Listener() {
+                        @Override public void commandResult(CorePackets.CommandResult result) {
+                            commandResult.set(result);
+                        }
+                    });
+            ClientNetworkSession second = session(secondPair.client(), new AtomicBoolean());
+            first.start("Alpha", null);
+            second.start("Beta", null);
+            long tick = 0;
+            while ((first.state() != ConnectionState.PLAY || second.state() != ConnectionState.PLAY)
+                    && tick < 30) {
+                application.sessions().tick(tick++, 1_000_000L + tick);
+                first.update(); second.update();
+            }
+            // Let the server consume both ClientReady messages as well.
+            application.sessions().tick(tick++, 1_500_000L + tick);
+            first.update(); second.update();
+
+            PlayerSession beta = application.sessions().sessions().stream().skip(1).findFirst().orElseThrow();
+            String targetName = beta.identity().name();
+            first.sendCommand(1, "/gamemode " + targetName + " spectator");
+            for (int i = 0; i < 4; i++) {
+                first.update(); second.update();
+                application.sessions().tick(tick++, 2_000_000L + tick);
+            }
+            assertTrue(commandResult.get() != null, "server did not answer command");
+            assertTrue(commandResult.get().success(), commandResult.get().messages().toString());
+            assertEquals(de.skyengine.shared.player.PlayerGameMode.SPECTATOR,
+                    beta.playerState().gameMode());
+
+            first.sendCommand(2, "/tp " + targetName + " 12 34 -5");
+            for (int i = 0; i < 4; i++) {
+                first.update(); second.update();
+                application.sessions().tick(tick++, 3_000_000L + tick);
+            }
+            assertEquals(12, beta.playerState().x());
+            assertEquals(34, beta.playerState().y());
+            assertEquals(-5, beta.playerState().z());
+        }
     }
 
     @Test

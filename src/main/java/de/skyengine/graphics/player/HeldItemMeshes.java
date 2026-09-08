@@ -1,5 +1,7 @@
 package de.skyengine.graphics.player;
 
+import de.skyengine.core.EngineProperties;
+import de.skyengine.core.SkyEngine;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.model.BakedQuad;
 import de.skyengine.game.world.block.model.BlockModels;
@@ -133,8 +135,21 @@ public final class HeldItemMeshes {
             this.shader.setUniformf("u_AlphaCutoff", TRANSLUCENT_ALPHA);
         }
         if (!held.flat) GlState.enableCullFace();   // Block-Würfel: Rückseiten cullen (Glas wie Vanilla)
+        EngineProperties properties = null;
+        if (!held.flat) {
+            /* Blockmodel overlays such as the grass side layer are intentionally coplanar.
+               Match the chunk CUTOUT pass and let the later overlay win at equal depth. The
+               comparison direction must follow the active depth convention: the normal world
+               renderer uses reversed Z (GREATER -> GEQUAL), while fallback hardware uses
+               LESS -> LEQUAL. */
+            properties = SkyEngine.get().getWindow().getProperties();
+            GL11.glDepthFunc(properties.orEqualDepthFunc());
+        }
         held.mesh.render();
-        if (!held.flat) GlState.disableCullFace();
+        if (!held.flat) {
+            GL11.glDepthFunc(properties.baseDepthFunc());
+            GlState.disableCullFace();
+        }
         if (held.translucent) {
             GL11.glDisable(GL11.GL_BLEND);
             this.shader.setUniformf("u_AlphaCutoff", CUTOUT_ALPHA);

@@ -326,6 +326,7 @@ public class GameContainer implements IResizeable, IDisposable {
     private final Vector3d eyePosition = new Vector3d();
     private final Vector3d eyeDirection = new Vector3d();
     private final Vector3d camRayDirection = new Vector3d();
+    private final Vector3d camRayOrigin = new Vector3d();
     /* Laufgeräusche: zurückgelegte Distanz seit dem letzten Schritt (MC-Kadenz ~1.6 Blöcke). */
     private static final double STEP_INTERVAL = 1.6;
     private double stepDistance = 0;
@@ -3088,12 +3089,23 @@ public class GameContainer implements IResizeable, IDisposable {
         if (!front) this.camRayDirection.negate();
 
         double dist = THIRD_PERSON_DISTANCE;
-        BlockRaycast.Hit blocked = BlockRaycast.raycast(dimension, this.eyePosition, this.camRayDirection, dist);
-        if (blocked != null) {
-            double dx = blocked.hitX() - this.eyePosition.x;
-            double dy = blocked.hitY() - this.eyePosition.y;
-            double dz = blocked.hitZ() - this.eyePosition.z;
-            dist = Math.max(0.3, Math.sqrt(dx * dx + dy * dy + dz * dz) - 0.1);
+        /* Eine Kamera ist kein dimensionsloser Strahl. Acht leicht versetzte Proben bilden
+           ihren Nahbereich ab und verhindern Clipping an Blockkanten. Fuer die Blockauswahl
+           irrelevante Pflanzen besitzen keine Collision-Shape und werden bewusst ignoriert. */
+        final double probe = 0.1;
+        for (int ix = -1; ix <= 1; ix += 2) {
+            for (int iy = -1; iy <= 1; iy += 2) {
+                for (int iz = -1; iz <= 1; iz += 2) {
+                    this.camRayOrigin.set(this.eyePosition).add(ix * probe, iy * probe, iz * probe);
+                    BlockRaycast.Hit blocked = BlockRaycast.raycastCollision(
+                            dimension, this.camRayOrigin, this.camRayDirection, dist);
+                    if (blocked == null) continue;
+                    double dx = blocked.hitX() - this.camRayOrigin.x;
+                    double dy = blocked.hitY() - this.camRayOrigin.y;
+                    double dz = blocked.hitZ() - this.camRayOrigin.z;
+                    dist = Math.max(0.3, Math.sqrt(dx * dx + dy * dy + dz * dz) - probe);
+                }
+            }
         }
         /* getPosition() ist die Live-Referenz der Kamera — bewusst in-place versetzen. */
         this.camera.getPosition().fma(dist, this.camRayDirection);
@@ -3559,7 +3571,18 @@ public class GameContainer implements IResizeable, IDisposable {
 
     /** Q mit der Debug-Axt setzt die allgemeine Selektion zurueck; Clipboard/Preview bleiben. */
     public void clearWorldEditSelection() {
-        if (this.world() == null || this.player() == null) return;
+        if (this.player() == null) return;
+        if (this.world() == null && this.multiplayer.session() != null) {
+            this.multiplayer.session().sendWorldEditAction(
+                    new de.skyengine.shared.gameplay.WorldEditActionRequest(
+                            ++this.remoteActionSequence,
+                            de.skyengine.shared.gameplay.WorldEditActionRequest.Action.CLEAR_SELECTION,
+                            this.player().getDimensionId().toString(),
+                            (int) Math.floor(this.player().x), (int) Math.floor(this.player().y),
+                            (int) Math.floor(this.player().z), 0));
+            return;
+        }
+        if (this.world() == null) return;
         this.world().worldEdit().session(this.player().getUuid()).clearSelection();
         this.chat.addMessage("§e" + I18n.tr("command.worldedit.selection_reset"));
     }
@@ -4075,12 +4098,22 @@ public class GameContainer implements IResizeable, IDisposable {
         boolean changeWorldEditMode = scroll != 0 && this.isStructureWandHeld()
                 && input.isBindDown(this.settings.key(KeyBindings.SNEAK));
         if (changeWorldEditMode) {
-            WorldEditSession.ToolMode mode = this.world().worldEdit().session(this.player().getUuid())
-                    .cycleToolMode(scroll > 0 ? -1 : 1);
-            this.hudStatusText = I18n.tr("command.worldedit.tool_mode_status",
-                    I18n.tr("command.worldedit.tool_mode_"
-                            + mode.name().toLowerCase(java.util.Locale.ROOT)));
-            this.hudStatusShownAt = System.currentTimeMillis();
+            if (this.world() == null && this.multiplayer.session() != null) {
+                this.multiplayer.session().sendWorldEditAction(
+                        new de.skyengine.shared.gameplay.WorldEditActionRequest(
+                                ++this.remoteActionSequence,
+                                de.skyengine.shared.gameplay.WorldEditActionRequest.Action.CYCLE_TOOL_MODE,
+                                this.player().getDimensionId().toString(),
+                                (int) Math.floor(this.player().x), (int) Math.floor(this.player().y),
+                                (int) Math.floor(this.player().z), scroll > 0 ? -1 : 1));
+            } else {
+                WorldEditSession.ToolMode mode = this.world().worldEdit().session(this.player().getUuid())
+                        .cycleToolMode(scroll > 0 ? -1 : 1);
+                this.hudStatusText = I18n.tr("command.worldedit.tool_mode_status",
+                        I18n.tr("command.worldedit.tool_mode_"
+                                + mode.name().toLowerCase(java.util.Locale.ROOT)));
+                this.hudStatusShownAt = System.currentTimeMillis();
+            }
         } else if (this.player().getGamemode() == Gamemode.SPECTATOR && scroll != 0) {
             float beforeSpeed = this.player().getSpectatorFlySpeed();
             this.player().adjustSpectatorFlySpeed(scroll);
@@ -4209,9 +4242,11 @@ public class GameContainer implements IResizeable, IDisposable {
                 if (message.isEmpty()) return;
                 if (message.startsWith("/")) {
                     this.multiplayer.session().sendCommand(++this.remoteCommandSequence,
-                            message.substring(1));
+                            message);
                 } else this.multiplayer.session().sendChat(message);
-            }));
+            }, (input, callback) -> this.multiplayer.session().requestCommandSuggestions(
+                    input, input.length(), response -> callback.accept(new GuiChat.RemoteSuggestions(
+                            response.input(), response.suggestions(), response.hint())))));
             return;
         }
         CommandContext.DimensionAccess dimensions = new CommandContext.DimensionAccess() {
@@ -4431,6 +4466,19 @@ public class GameContainer implements IResizeable, IDisposable {
     /** Konsumiert Debug-Axt-Klicks, damit weder Abbau noch normale Blockinteraktion durchfallen. */
     private boolean handleWorldEditToolClick(boolean primary) {
         if (!this.isStructureWandHeld() || this.hit == null) return false;
+        if (this.world() == null && this.multiplayer.session() != null) {
+            this.multiplayer.session().sendWorldEditAction(
+                    new de.skyengine.shared.gameplay.WorldEditActionRequest(
+                            ++this.remoteActionSequence,
+                            primary
+                                    ? de.skyengine.shared.gameplay.WorldEditActionRequest.Action.PRIMARY_CLICK
+                                    : de.skyengine.shared.gameplay.WorldEditActionRequest.Action.SECONDARY_CLICK,
+                            this.player().getDimensionId().toString(), this.hit.x(), this.hit.y(),
+                            this.hit.z(), 0));
+            this.stopDestroyBlock();
+            this.animState.swing();
+            return true;
+        }
         WorldEditSession editor = this.world().worldEdit().session(this.player().getUuid());
         try {
             if (editor.toolMode() == WorldEditSession.ToolMode.ANCHOR) {

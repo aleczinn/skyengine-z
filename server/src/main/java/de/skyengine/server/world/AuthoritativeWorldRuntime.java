@@ -1,7 +1,12 @@
 package de.skyengine.server.world;
 
 import de.skyengine.core.resource.Resources;
+import de.skyengine.core.i18n.I18n;
 import de.skyengine.game.Gamemode;
+import de.skyengine.game.command.CommandContext;
+import de.skyengine.game.command.CommandDispatcher;
+import de.skyengine.game.command.CommandResult;
+import de.skyengine.game.command.GameplayCommands;
 import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.entity.Entity;
 import de.skyengine.game.entity.ItemEntity;
@@ -13,6 +18,7 @@ import de.skyengine.game.entity.PlayerControls;
 import de.skyengine.game.physics.ChunkMovementLimiter;
 import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.PlayerBlockActions;
+import de.skyengine.game.world.PlayerLocation;
 import de.skyengine.game.world.DimensionManager;
 import de.skyengine.game.world.World;
 import de.skyengine.game.world.block.BlockRegistry;
@@ -20,6 +26,7 @@ import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.block.BlockPos;
+import de.skyengine.game.world.block.BlockRaycast;
 import de.skyengine.game.world.block.registry.Registries;
 import de.skyengine.game.world.block.state.BlockStateCodec;
 import de.skyengine.game.world.chunk.Chunk;
@@ -39,6 +46,10 @@ import de.skyengine.audio.BlockSoundGroup;
 import de.skyengine.audio.BlockOpenSound;
 import de.skyengine.game.world.generator.biome.Biome;
 import de.skyengine.game.world.generator.biome.Biomes;
+import de.skyengine.game.world.generator.biome.BiomeLocator;
+import de.skyengine.game.world.structure.StructurePlacement;
+import de.skyengine.game.world.structure.StructureTemplate;
+import de.skyengine.game.world.structure.WorldEditSession;
 import de.skyengine.game.world.save.PlayerIO;
 import de.skyengine.game.world.save.DataTagIO;
 import de.skyengine.game.world.save.WorldSaves;
@@ -100,6 +111,7 @@ import java.util.IdentityHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import org.joml.Vector3d;
 
 /**
  * The actual server-side game world. This deliberately reuses the same World, Dimension,
@@ -118,6 +130,7 @@ public final class AuthoritativeWorldRuntime implements ServerWorldRuntime {
     private final WorldSaves.WorldSave save;
     private final World world;
     private final WorldWorkerPool workers;
+    private final CommandDispatcher commandDispatcher = GameplayCommands.createDispatcher();
     private final boolean ownsWorkers;
     private final Map<UUID, EntityPlayer> players = new LinkedHashMap<>();
     private final Map<UUID, Integer> playerNetworkIds = new HashMap<>();
@@ -253,6 +266,7 @@ public final class AuthoritativeWorldRuntime implements ServerWorldRuntime {
     private static synchronized void bootstrapGameplay() {
         if (BlockRegistry.isBaked()) return;
         Resources.initialize();
+        if (I18n.code().isBlank()) I18n.load(I18n.FALLBACK_CODE);
         Blocks.bootstrap(Resources.defaultGameRoot().resolve("blocks").toFile());
         WorldgenRegistries.bootstrap();
     }
@@ -287,6 +301,338 @@ public final class AuthoritativeWorldRuntime implements ServerWorldRuntime {
     @Override public ReplicationCacheBudget replicationCacheBudget() { return this.replicationCacheBudget; }
     @Override public int residentChunkCount() { return this.residentChunkCount; }
     @Override public List<RegistryMapping> registryMappings() { return this.registryMappings; }
+
+    @Override
+    public CommandResult executePlayerCommand(PlayerIdentity identity, String input) {
+        EntityPlayer player = this.players.get(identity.uuid());
+        if (player == null) return CommandResult.error(I18n.tr("command.no_player"));
+        int inventoryBefore = storageHash(player.getInventory());
+        CommandResult result = this.commandDispatcher.execute(commandContext(identity, player), input);
+        if (storageHash(player.getInventory()) != inventoryBefore) bumpInventoryRevision(identity.uuid());
+        return result;
+    }
+
+    @Override
+    public List<String> suggestPlayerCommand(PlayerIdentity identity, String input) {
+        EntityPlayer player = this.players.get(identity.uuid());
+        return player == null ? List.of()
+                : this.commandDispatcher.suggest(commandContext(identity, player), input);
+    }
+
+    @Override
+    public String hintPlayerCommand(PlayerIdentity identity, String input) {
+        return this.players.containsKey(identity.uuid()) ? this.commandDispatcher.hint(input) : "";
+    }
+
+    @Override
+    public CommandResult handleWorldEditAction(PlayerIdentity identity,
+                                               de.skyengine.shared.gameplay.WorldEditActionRequest request) {
+        EntityPlayer player = this.players.get(identity.uuid());
+        if (player == null) return CommandResult.error(I18n.tr("command.no_player"));
+        ItemStack held = player.getInventory().get(player.getSelectedSlot());
+        if (held.isEmpty() || held.getItem() == null
+                || !held.getItem().getId().equals(Identifier.of("structure_wand"))) {
+            return CommandResult.error(I18n.tr("command.worldedit.tool_not_registered"));
+        }
+        WorldEditSession editor = this.world.worldEdit().session(identity.uuid());
+        try {
+            return switch (request.action()) {
+                case PRIMARY_CLICK, SECONDARY_CLICK -> {
+                    if (editor.toolMode() == WorldEditSession.ToolMode.ANCHOR) {
+                        editor.anchor(player.getDimensionId(), request.x(), request.y(), request.z());
+                        yield CommandResult.success(I18n.tr("command.worldedit.anchor_success",
+                                request.x(), request.y(), request.z()));
+                    }
+                    if (request.action()
+                            == de.skyengine.shared.gameplay.WorldEditActionRequest.Action.PRIMARY_CLICK) {
+                        editor.pos1(player.getDimensionId(), request.x(), request.y(), request.z());
+                        yield CommandResult.success(I18n.tr("command.worldedit.pos1_success",
+                                request.x(), request.y(), request.z()));
+                    }
+                    editor.pos2(player.getDimensionId(), request.x(), request.y(), request.z());
+                    yield CommandResult.success(I18n.tr("command.worldedit.pos2_success",
+                            request.x(), request.y(), request.z()));
+                }
+                case CYCLE_TOOL_MODE -> {
+                    WorldEditSession.ToolMode mode = editor.cycleToolMode(request.direction());
+                    yield CommandResult.success(I18n.tr("command.worldedit.tool_mode_status",
+                            I18n.tr("command.worldedit.tool_mode_"
+                                    + mode.name().toLowerCase(java.util.Locale.ROOT))));
+                }
+                case CLEAR_SELECTION -> {
+                    editor.clearSelection();
+                    yield CommandResult.success(I18n.tr("command.worldedit.selection_reset"));
+                }
+            };
+        } catch (RuntimeException failure) {
+            String message = failure.getMessage();
+            if (message == null || message.isBlank()) message = failure.getClass().getSimpleName();
+            return CommandResult.error(I18n.tr("command.worldedit.error_prefix", message));
+        }
+    }
+
+    private CommandContext commandContext(PlayerIdentity identity, EntityPlayer player) {
+        CommandContext.DimensionAccess dimensions = new CommandContext.DimensionAccess() {
+            @Override public Identifier current() { return player.getDimensionId(); }
+            @Override public List<Identifier> available() {
+                WorldgenRegistries.bootstrap();
+                return WorldgenRegistries.DIMENSIONS.values().stream().map(value -> value.id()).toList();
+            }
+            @Override public boolean request(Identifier target) {
+                return movePlayer(identity, player, target, player.x, player.y, player.z,
+                        player.yaw, player.pitch);
+            }
+        };
+        CommandContext.PlayerAccess playerAccess = new CommandContext.PlayerAccess() {
+            @Override public CommandContext.Position position() {
+                return new CommandContext.Position(player.getDimensionId(), player.x, player.y, player.z);
+            }
+            @Override public void kill() { player.kill(); }
+            @Override public Gamemode gamemode() { return player.getGamemode(); }
+            @Override public void gamemode(Gamemode gamemode) { player.setGamemode(gamemode); }
+            @Override public boolean teleport(double x, double y, double z) {
+                return movePlayer(identity, player, player.getDimensionId(), x, y, z,
+                        player.yaw, player.pitch);
+            }
+            @Override public CommandContext.Position setHome() {
+                PlayerLocation home = new PlayerLocation(player.getDimensionId(), player.x, player.y,
+                        player.z, player.yaw, player.pitch);
+                player.setHome(home);
+                world.players().save(player);
+                return new CommandContext.Position(home.dimension(), home.x(), home.y(), home.z());
+            }
+            @Override public CommandContext.HomeResult home() {
+                PlayerLocation home = player.getHome();
+                if (home == null) return CommandContext.HomeResult.NOT_SET;
+                return movePlayer(identity, player, home.dimension(), home.x(), home.y(), home.z(),
+                        home.yaw(), home.pitch())
+                        ? CommandContext.HomeResult.TELEPORTED : CommandContext.HomeResult.BUSY;
+            }
+        };
+        CommandContext.WorldAccess worldAccess = new CommandContext.WorldAccess() {
+            @Override public CommandContext.Position setSpawnPoint() {
+                int x = (int) Math.floor(player.x), y = (int) Math.floor(player.y);
+                int z = (int) Math.floor(player.z);
+                world.setSpawnPoint(player.getDimensionId(), x, y, z, player.yaw, player.pitch);
+                return new CommandContext.Position(player.getDimensionId(), x, y, z);
+            }
+            @Override public List<String> biomeNames() {
+                return java.util.Arrays.stream(Biomes.ALL).map(biome -> biome.name).sorted().toList();
+            }
+            @Override public boolean locateBiome(String name) {
+                Biome target = BiomeLocator.byName(name);
+                Dimension dimension = world.dimensions().getLoaded(player.getDimensionId());
+                if (target == null || dimension == null) return false;
+                int originX = (int) Math.floor(player.x), originZ = (int) Math.floor(player.z);
+                world.submitBackground(() -> BiomeLocator.locate(dimension.getGenerator(), target,
+                        originX, originZ, BiomeLocator.DEFAULT_RADIUS, BiomeLocator.DEFAULT_STEP));
+                return true;
+            }
+        };
+        return new CommandContext(player.getInventory(), dimensions,
+                structureAccess(identity, player), playerAccess, worldAccess);
+    }
+
+    private CommandContext.StructureAccess structureAccess(PlayerIdentity identity, EntityPlayer player) {
+        return new CommandContext.StructureAccess() {
+            private int x() { return (int) Math.floor(player.x); }
+            private int y() { return (int) Math.floor(player.y); }
+            private int z() { return (int) Math.floor(player.z); }
+            private Dimension dimension() {
+                Dimension value = world.dimensions().getLoaded(player.getDimensionId());
+                if (value == null) throw new IllegalStateException(I18n.tr("command.worldedit.no_world"));
+                return value;
+            }
+            private WorldEditSession editor() { return world.worldEdit().session(identity.uuid()); }
+            @Override public String pos1() {
+                int py = y() - 1;
+                editor().pos1(player.getDimensionId(), x(), py, z());
+                return I18n.tr("command.worldedit.pos1_success", x(), py, z());
+            }
+            @Override public String pos2() {
+                int py = y() - 1;
+                editor().pos2(player.getDimensionId(), x(), py, z());
+                return I18n.tr("command.worldedit.pos2_success", x(), py, z());
+            }
+            private BlockRaycast.Hit target() {
+                double yaw = Math.toRadians(player.yaw), pitch = Math.toRadians(player.pitch);
+                double cp = Math.cos(pitch);
+                Vector3d origin = new Vector3d(player.x, player.y + player.getEyeHeight(1F), player.z);
+                Vector3d direction = new Vector3d(cp * Math.sin(yaw), -Math.sin(pitch),
+                        -cp * Math.cos(yaw));
+                BlockRaycast.Hit hit = BlockRaycast.raycast(dimension(), origin, direction, 6.0);
+                if (hit == null) throw new IllegalStateException(I18n.tr("command.worldedit.no_target"));
+                return hit;
+            }
+            @Override public String hpos1() {
+                BlockRaycast.Hit hit = target();
+                editor().pos1(player.getDimensionId(), hit.x(), hit.y(), hit.z());
+                return I18n.tr("command.worldedit.pos1_success", hit.x(), hit.y(), hit.z());
+            }
+            @Override public String hpos2() {
+                BlockRaycast.Hit hit = target();
+                editor().pos2(player.getDimensionId(), hit.x(), hit.y(), hit.z());
+                return I18n.tr("command.worldedit.pos2_success", hit.x(), hit.y(), hit.z());
+            }
+            @Override public StructureTemplate save(String reference, boolean includeAir,
+                                                    boolean overwrite, boolean useAnchor) throws Exception {
+                return editor().save(dimension(), reference, includeAir, overwrite, x(), y(), z(),
+                        useAnchor ? WorldEditSession.OperationOrigin.ANCHOR
+                                : WorldEditSession.OperationOrigin.PLAYER);
+            }
+            @Override public StructureTemplate load(String reference) throws Exception {
+                return editor().load(reference);
+            }
+            @Override public List<String> templates() throws Exception { return world.structures().references(); }
+            @Override public String wand() {
+                Item wand = Items.get(Identifier.of("structure_wand"));
+                if (wand == null) throw new IllegalStateException(
+                        I18n.tr("command.worldedit.tool_not_registered"));
+                for (int slot = 0; slot < player.getInventory().size(); slot++) {
+                    ItemStack stack = player.getInventory().get(slot);
+                    if (!stack.isEmpty() && stack.getItem() == wand) {
+                        if (slot < 9) player.setSelectedSlot(slot);
+                        return I18n.tr("command.worldedit.tool_already_owned");
+                    }
+                }
+                ItemStack remaining = player.getInventory().insert(new ItemStack(wand, 1));
+                if (!remaining.isEmpty()) throw new IllegalStateException("Inventory is full");
+                return I18n.tr("command.worldedit.tool_received_inventory");
+            }
+            private Direction direction() {
+                if (player.pitch > 45F) return Direction.DOWN;
+                if (player.pitch < -45F) return Direction.UP;
+                return Direction.fromYaw(player.yaw);
+            }
+            private String directionName(Direction direction) {
+                return I18n.tr("command.worldedit.direction_" + direction.name().toLowerCase());
+            }
+            @Override public String copy(boolean useAnchor) {
+                var copied = editor().copy(dimension(), x(), y(), z(),
+                        useAnchor ? WorldEditSession.OperationOrigin.ANCHOR
+                                : WorldEditSession.OperationOrigin.PLAYER);
+                return I18n.tr(useAnchor ? "command.worldedit.copy_success_anchor"
+                                : "command.worldedit.copy_success",
+                        copied.template().sizeX(), copied.template().sizeY(),
+                        copied.template().sizeZ(), copied.template().cells().size());
+            }
+            @Override public StructurePlacement.Result cut(boolean useAnchor) {
+                return editor().cut(dimension(), x(), y(), z(),
+                        useAnchor ? WorldEditSession.OperationOrigin.ANCHOR
+                                : WorldEditSession.OperationOrigin.PLAYER);
+            }
+            @Override public String expand(int amount) {
+                Direction direction = direction();
+                var changed = editor().expand(player.getDimensionId(), direction, amount);
+                var bounds = changed.bounds();
+                return I18n.tr("command.worldedit.expand_success", amount, directionName(direction),
+                        bounds.sizeX(), bounds.sizeY(), bounds.sizeZ());
+            }
+            @Override public String contract(int amount) {
+                Direction direction = direction();
+                var changed = editor().contract(player.getDimensionId(), direction, amount);
+                var bounds = changed.bounds();
+                return I18n.tr("command.worldedit.contract_success", amount, directionName(direction),
+                        bounds.sizeX(), bounds.sizeY(), bounds.sizeZ());
+            }
+            @Override public StructurePlacement.Result set(int state) {
+                return editor().setBlock(dimension(), state);
+            }
+            @Override public StructurePlacement.Result replace(java.util.function.IntPredicate matcher, int state) {
+                return editor().replace(dimension(), matcher, state);
+            }
+            @Override public StructurePlacement.Result stack(int count) {
+                return editor().stack(dimension(), direction(), count);
+            }
+            @Override public StructurePlacement.Result move(int distance) {
+                return editor().move(dimension(), direction(), distance);
+            }
+            @Override public StructurePlacement.Result regen() { return editor().regenerate(dimension()); }
+            @Override public String rotate(int degrees) {
+                return I18n.tr("command.worldedit.rotate_success", editor().rotate(degrees).rotation());
+            }
+            @Override public String flip() {
+                double yaw = Math.toRadians(player.yaw);
+                boolean northSouth = Math.abs(Math.cos(yaw)) >= Math.abs(Math.sin(yaw));
+                return I18n.tr("command.worldedit.flip_success", editor().flip(northSouth).mirror());
+            }
+            @Override public String preview(Integer px, Integer py, Integer pz,
+                                            StructurePlacement.Rule rule) {
+                int tx = px == null ? x() : px, ty = py == null ? y() : py, tz = pz == null ? z() : pz;
+                WorldEditSession.Preview preview = editor().preview(player.getDimensionId(), tx, ty, tz, rule);
+                return I18n.tr("command.worldedit.preview_success", preview.x(), preview.y(), preview.z());
+            }
+            @Override public void clearPreview() { editor().clearPreview(); }
+            @Override public StructurePlacement.Result paste(Integer px, Integer py, Integer pz,
+                                                               StructurePlacement.Rule rule,
+                                                               boolean selectBounds) {
+                WorldEditSession.Preview preview = editor().preview();
+                int tx, ty, tz;
+                StructurePlacement.Rule effectiveRule = rule;
+                if (px == null && preview != null && preview.dimension().equals(player.getDimensionId())) {
+                    tx = preview.x(); ty = preview.y(); tz = preview.z(); effectiveRule = preview.rule();
+                } else {
+                    tx = px == null ? x() : px; ty = py == null ? y() : py; tz = pz == null ? z() : pz;
+                }
+                return editor().paste(dimension(), tx, ty, tz, effectiveRule, selectBounds);
+            }
+            @Override public String undo(int amount) {
+                var result = editor().undo(dimension(), amount);
+                return result.operations() == 0 ? I18n.tr("command.worldedit.undo_empty")
+                        : I18n.tr("command.worldedit.undo_success", result.operations(), result.cells());
+            }
+            @Override public String redo(int amount) {
+                var result = editor().redo(dimension(), amount);
+                return result.operations() == 0 ? I18n.tr("command.worldedit.redo_empty")
+                        : I18n.tr("command.worldedit.redo_success", result.operations(), result.cells());
+            }
+        };
+    }
+
+    private boolean movePlayer(PlayerIdentity identity, EntityPlayer player, Identifier dimensionId,
+                               double x, double y, double z, float yaw, float pitch) {
+        if (!Double.isFinite(x) || !Double.isFinite(y) || !Double.isFinite(z)
+                || !Float.isFinite(yaw) || !Float.isFinite(pitch)) return false;
+        if (!dimensionId.equals(player.getDimensionId())) {
+            DimensionManager.DimensionTicket next;
+            try {
+                next = this.world.acquireDimension(dimensionId, DimensionManager.TicketType.PLAYER,
+                        identity.uuid());
+            } catch (RuntimeException invalid) {
+                return false;
+            }
+            Dimension dimension = next.dimension();
+            configureNetworkDimension(dimension);
+            dimension.getChunkManager().configureStreamingDistance(this.config.viewDistance(), CLIENT_MESH_HALO);
+            dimension.setSimulationDistance(this.config.simulationDistance());
+            DimensionManager.DimensionTicket previous = this.playerTickets.put(identity.uuid(), next);
+            if (previous != null) previous.close();
+            player.setDimensionId(dimensionId);
+        }
+        player.setPosition(x, y, z);
+        player.yaw = yaw;
+        player.pitch = pitch;
+        player.motionX = player.motionY = player.motionZ = 0;
+        player.resetFallDistance();
+        player.snapPrevToCurrent();
+        this.mining.remove(identity.uuid());
+        this.portalControllers.computeIfAbsent(identity.uuid(), ignored -> new PortalController()).reset();
+        return true;
+    }
+
+    @Override
+    public PlayerStateSnapshot teleportPlayer(PlayerIdentity identity, int entityId,
+                                              PlayerStateSnapshot previous, String dimension,
+                                              double x, double y, double z, float yaw, float pitch,
+                                              long serverTick) {
+        EntityPlayer player = this.players.get(identity.uuid());
+        if (player == null) return previous;
+        Identifier target;
+        try { target = Identifier.of(dimension); }
+        catch (IllegalArgumentException invalid) { return previous; }
+        if (!movePlayer(identity, player, target, x, y, z, yaw, pitch)) return previous;
+        return snapshot(player, serverTick, previous.lastProcessedInputSequence());
+    }
 
     @Override
     public void tick(long serverTick) {

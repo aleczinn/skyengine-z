@@ -150,6 +150,7 @@ public final class ServerApplication implements AutoCloseable {
     public ServerSessionManager sessions() { return this.sessions; }
     public ServerProfiler profiler() { return this.profiler; }
     public ServerCommandDispatcher commands() { return this.commands; }
+    ServerWorldRuntime worldRuntime() { return this.world; }
     public de.skyengine.server.event.ServerEventBus events() { return this.events; }
     public boolean stopRequested() { return this.stopRequested.get(); }
 

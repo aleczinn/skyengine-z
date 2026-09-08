@@ -10,27 +10,11 @@ import java.util.List;
 public final class ChatManager {
 
     public static final int MAX_MESSAGES = 100;
-    private final CommandDispatcher dispatcher = new CommandDispatcher();
+    private final CommandDispatcher dispatcher = GameplayCommands.createDispatcher();
     private final List<ChatMessage> messages = new ArrayList<>();
     private final List<String> history = new ArrayList<>();
 
-    public ChatManager() {
-        this.register(new GiveCommand());
-        this.register(new DimensionCommand());
-        this.register(new KillCommand());
-        this.register(new GamemodeCommand());
-        this.register(new TeleportCommand());
-        this.register(new SetSpawnPointCommand());
-        this.register(new SetHomeCommand());
-        this.register(new HomeCommand());
-        this.register(new BiomeCommand());
-        this.register(new StructureCommand());
-        for (String name : List.of("wand", "pos1", "pos2", "hpos1", "hpos2", "copy", "cut",
-                "set", "replace", "expand", "contract", "stack", "move", "regen",
-                "rotate", "flip", "preview", "paste", "undo", "redo")) {
-            this.register(new WorldEditCommand(name));
-        }
-    }
+    public ChatManager() { }
 
     /** Zentraler Erweiterungspunkt fuer spaetere Engine- oder Mod-Befehle. */
     public void register(Command command) {

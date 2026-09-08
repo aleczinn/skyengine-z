@@ -20,6 +20,7 @@ import de.skyengine.shared.gameplay.NetworkItemStack;
 import de.skyengine.shared.gameplay.WorldSoundType;
 import de.skyengine.shared.gameplay.BlockActionEffectType;
 import de.skyengine.shared.gameplay.PlayerAbilityAction;
+import de.skyengine.shared.gameplay.WorldEditActionRequest;
 import de.skyengine.shared.entity.NetworkEntitySnapshot;
 
 import java.util.ArrayList;
@@ -590,6 +591,60 @@ public final class CoreProtocol {
                     writeStrings(out, p.messages(), 256, ProtocolLimits.MAX_MESSAGE_BYTES);
                 }, in -> new CorePackets.CommandResult(in.readVarLong(), in.readBoolean(),
                         readStrings(in, 256, ProtocolLimits.MAX_MESSAGE_BYTES)))));
+        registry.register(type(63, CorePackets.CommandSuggestionsRequest.class,
+                PacketDirection.CLIENT_TO_SERVER, play, LogicalChannel.CHAT,
+                DeliveryClass.RELIABLE_ORDERED, ProtocolLimits.MAX_COMMAND_BYTES + 24,
+                PacketCodec.of((out, p) -> {
+                    out.writeVarLong(p.requestId());
+                    out.writeString(p.input(), ProtocolLimits.MAX_COMMAND_BYTES);
+                    out.writeVarInt(p.cursor());
+                }, in -> {
+                    try {
+                        return new CorePackets.CommandSuggestionsRequest(in.readVarLong(),
+                                in.readString(ProtocolLimits.MAX_COMMAND_BYTES), in.readVarInt());
+                    } catch (IllegalArgumentException e) {
+                        throw new ProtocolException("Invalid command suggestion request", e);
+                    }
+                })));
+        registry.register(type(65, CorePackets.WorldEditAction.class, PacketDirection.CLIENT_TO_SERVER, play,
+                LogicalChannel.GAMEPLAY, DeliveryClass.RELIABLE_ORDERED, 64,
+                PacketCodec.of((out, p) -> {
+                    WorldEditActionRequest request = p.request();
+                    out.writeVarLong(request.actionId());
+                    out.writeByte(request.action().ordinal());
+                    out.writeString(request.dimension(), ProtocolLimits.MAX_IDENTIFIER_BYTES);
+                    out.writeInt(request.x()); out.writeShort(request.y()); out.writeInt(request.z());
+                    out.writeByte(request.direction() + 1);
+                }, in -> {
+                    long actionId = in.readVarLong();
+                    WorldEditActionRequest.Action action = enumValue(WorldEditActionRequest.Action.values(),
+                            in.readUnsignedByte(), "world edit action");
+                    try {
+                        return new CorePackets.WorldEditAction(new WorldEditActionRequest(actionId, action,
+                                in.readString(ProtocolLimits.MAX_IDENTIFIER_BYTES), in.readInt(),
+                                in.readUnsignedShort(), in.readInt(), in.readUnsignedByte() - 1));
+                    } catch (IllegalArgumentException e) {
+                        throw new ProtocolException("Invalid WorldEdit action", e);
+                    }
+                })));
+        registry.register(type(64, CorePackets.CommandSuggestionsResponse.class,
+                PacketDirection.SERVER_TO_CLIENT, play, LogicalChannel.CHAT,
+                DeliveryClass.RELIABLE_ORDERED, 128 * 1024,
+                PacketCodec.of((out, p) -> {
+                    out.writeVarLong(p.requestId());
+                    out.writeString(p.input(), ProtocolLimits.MAX_COMMAND_BYTES);
+                    writeStrings(out, p.suggestions(), 128, ProtocolLimits.MAX_COMMAND_BYTES);
+                    out.writeString(p.hint(), ProtocolLimits.MAX_MESSAGE_BYTES);
+                }, in -> {
+                    try {
+                        return new CorePackets.CommandSuggestionsResponse(in.readVarLong(),
+                                in.readString(ProtocolLimits.MAX_COMMAND_BYTES),
+                                readStrings(in, 128, ProtocolLimits.MAX_COMMAND_BYTES),
+                                in.readString(ProtocolLimits.MAX_MESSAGE_BYTES));
+                    } catch (IllegalArgumentException e) {
+                        throw new ProtocolException("Invalid command suggestions", e);
+                    }
+                })));
     }
 
     private static void registerEntities(PacketRegistry registry) {

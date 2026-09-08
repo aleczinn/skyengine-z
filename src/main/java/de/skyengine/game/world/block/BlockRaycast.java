@@ -12,6 +12,9 @@ public final class BlockRaycast {
     public interface BlockAccess {
         int getBlock(int x, int y, int z);
         boolean isInteractionReady(int x, int y, int z);
+        default BlockShape getCollisionShape(int x, int y, int z, int block) {
+            return Blocks.getState(block).getCollisionShape();
+        }
     }
 
     /**
@@ -34,7 +37,17 @@ public final class BlockRaycast {
      * @return Hit oder null, wenn nichts getroffen wurde
      */
     public static Hit raycast(Dimension world, Vector3d origin, Vector3d dir, double maxDistance) {
-        return raycast(world, origin, dir, maxDistance, false, false);
+        return raycast(world, origin, dir, maxDistance, false, false, false);
+    }
+
+    /**
+     * Kamera-Raycasts verwenden die Kollisions- statt der Outline-Shape. Dadurch druecken
+     * selektierbare, aber nicht kollidierende Pflanzen (hohes Gras, Blumen usw.) die
+     * Third-Person-Kamera nicht an den Kopf des Spielers.
+     */
+    public static Hit raycastCollision(Dimension world, Vector3d origin, Vector3d dir,
+                                       double maxDistance) {
+        return raycast(world, origin, dir, maxDistance, false, false, true);
     }
 
     /**
@@ -44,7 +57,7 @@ public final class BlockRaycast {
      *                      {@code Fluid.SOURCE_ONLY}). Sonst werden alle Fluids übersprungen.
      */
     public static Hit raycast(Dimension world, Vector3d origin, Vector3d dir, double maxDistance, boolean includeFluids) {
-        return raycast(world, origin, dir, maxDistance, includeFluids, false);
+        return raycast(world, origin, dir, maxDistance, includeFluids, false, false);
     }
 
     /**
@@ -53,7 +66,7 @@ public final class BlockRaycast {
      */
     public static Hit raycastInteractive(Dimension world, Vector3d origin, Vector3d dir,
                                          double maxDistance) {
-        return raycast(world, origin, dir, maxDistance, false, true);
+        return raycast(world, origin, dir, maxDistance, false, true, false);
     }
 
     public static Hit raycastInteractive(BlockAccess world, Vector3d origin, Vector3d dir,
@@ -64,27 +77,38 @@ public final class BlockRaycast {
     /** Fluid-aware variant used by the replicated empty-bucket interaction. */
     public static Hit raycastInteractive(BlockAccess world, Vector3d origin, Vector3d dir,
                                          double maxDistance, boolean includeFluids) {
-        return raycast(world, origin, dir, maxDistance, includeFluids, true);
+        return raycast(world, origin, dir, maxDistance, includeFluids, true, false);
     }
 
     /** Fluid-bewusste Spieler-Variante fuer den leeren Eimer. */
     public static Hit raycastInteractive(Dimension world, Vector3d origin, Vector3d dir,
                                          double maxDistance, boolean includeFluids) {
-        return raycast(world, origin, dir, maxDistance, includeFluids, true);
+        return raycast(world, origin, dir, maxDistance, includeFluids, true, false);
     }
 
     private static Hit raycast(Dimension world, Vector3d origin, Vector3d dir, double maxDistance,
-                               boolean includeFluids, boolean requirePlayerInteractionReady) {
+                               boolean includeFluids, boolean requirePlayerInteractionReady,
+                               boolean useCollisionShape) {
         return raycast(new BlockAccess() {
             @Override public int getBlock(int x, int y, int z) { return world.getBlock(x, y, z); }
             @Override public boolean isInteractionReady(int x, int y, int z) {
                 return world.isPlayerInteractionReady(x, y, z);
             }
-        }, origin, dir, maxDistance, includeFluids, requirePlayerInteractionReady);
+            @Override public BlockShape getCollisionShape(int x, int y, int z, int block) {
+                return world.getCollisionShape(x, y, z);
+            }
+        }, origin, dir, maxDistance, includeFluids, requirePlayerInteractionReady, useCollisionShape);
     }
 
     private static Hit raycast(BlockAccess world, Vector3d origin, Vector3d dir, double maxDistance,
                                boolean includeFluids, boolean requirePlayerInteractionReady) {
+        return raycast(world, origin, dir, maxDistance, includeFluids,
+                requirePlayerInteractionReady, false);
+    }
+
+    private static Hit raycast(BlockAccess world, Vector3d origin, Vector3d dir, double maxDistance,
+                               boolean includeFluids, boolean requirePlayerInteractionReady,
+                               boolean useCollisionShape) {
         int x = (int) Math.floor(origin.x);
         int y = (int) Math.floor(origin.y);
         int z = (int) Math.floor(origin.z);
@@ -121,7 +145,9 @@ public final class BlockRaycast {
                     boolean sourceFluid = state.get(Properties.LEVEL) == 0 && !state.get(Properties.FALLING);
                     shape = sourceFluid ? BlockShape.FULL_CUBE : BlockShape.EMPTY;
                 } else {
-                    shape = state.getOutlineShape();
+                    shape = useCollisionShape
+                            ? world.getCollisionShape(x, y, z, block)
+                            : state.getOutlineShape();
                 }
                 BlockShape.RayHit rh = shape.clip(origin, dir, x, y, z);
                 if (rh != null && rh.t() <= maxDistance) {
