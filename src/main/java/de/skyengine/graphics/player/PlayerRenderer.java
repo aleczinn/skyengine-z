@@ -162,13 +162,22 @@ public final class PlayerRenderer implements IDisposable {
     public void renderThirdPerson(EntityPlayer player, PlayerAnimationState anim,
                                   Camera camera, float partialTick,
                                   HeldItemMeshes items, ItemStack held, float light) {
+        this.renderThirdPerson(player, anim, camera, partialTick, items, held, light,
+                player.yaw, player.pitch);
+    }
+
+    /** Remote-player overload whose look transform is interpolated at render frequency. */
+    public void renderThirdPerson(EntityPlayer player, PlayerAnimationState anim,
+                                  Camera camera, float partialTick,
+                                  HeldItemMeshes items, ItemStack held, float light,
+                                  float renderYaw, float renderPitch) {
         Vector3d cam = camera.getPosition();
         float ox = (float) (player.lastX + (player.x - player.lastX) * partialTick - cam.x);
         float oy = (float) (player.lastY + (player.y - player.lastY) * partialTick - cam.y);
         float oz = (float) (player.lastZ + (player.z - player.lastZ) * partialTick - cam.z);
 
         float bodyYaw = anim.getBodyYaw(partialTick);
-        this.computePose(player, anim, partialTick, bodyYaw);
+        this.computePose(player, anim, partialTick, bodyYaw, renderYaw, renderPitch);
         PlayerModel.applyModelSpace(this.base.translation(ox, oy, oz)
                 .rotateY((float) Math.PI - (float) Math.toRadians(bodyYaw)));
 
@@ -211,7 +220,8 @@ public final class PlayerRenderer implements IDisposable {
      * Vanilla-HumanoidModel-Pose (setupAnim/setupAttackAnimation/Crouch) VERBATIM — die
      * y-down-Konvention steckt komplett im Modell-Raum, hier keine Vorzeichen anpassen.
      */
-    private void computePose(EntityPlayer player, PlayerAnimationState anim, float partialTick, float bodyYaw) {
+    private void computePose(EntityPlayer player, PlayerAnimationState anim, float partialTick,
+                             float bodyYaw, float renderYaw, float renderPitch) {
         this.pose.reset();
         this.pose.armY = this.model.getArmPivotY();
 
@@ -222,8 +232,8 @@ public final class PlayerRenderer implements IDisposable {
         this.pose.rightLegXRot = (float) (Math.cos(swing * 0.6662F) * 1.4 * amount);
         this.pose.leftLegXRot = (float) (Math.cos(swing * 0.6662F + Math.PI) * 1.4 * amount);
 
-        this.pose.headYRot = (float) Math.toRadians(PlayerAnimationState.wrapDegrees(player.yaw - bodyYaw));
-        this.pose.headXRot = (float) Math.toRadians(player.pitch);
+        this.pose.headYRot = (float) Math.toRadians(PlayerAnimationState.wrapDegrees(renderYaw - bodyYaw));
+        this.pose.headXRot = (float) Math.toRadians(renderPitch);
 
         /* Essen: rechter Arm fährt weich vor den Mund (geglätteter Blend) — flacher Winkel
            (Hand auf Mund- statt Augenhöhe) + stärker zur Gesichtsmitte, dazu ein kleines
@@ -261,8 +271,9 @@ public final class PlayerRenderer implements IDisposable {
 
         if (player.isPassenger()) {
             this.applyRidingPose();
-        } else if (player.isSneaking()) {
-            this.applyCrouchPose();
+        } else {
+            float crouchProgress = player.getCrouchProgress(partialTick);
+            if (crouchProgress > 0F) this.applyCrouchPose(crouchProgress);
         }
     }
 
@@ -278,16 +289,17 @@ public final class PlayerRenderer implements IDisposable {
         this.pose.leftLegZRot = -0.07853982F;
     }
 
-    /** Crouch-Pose (Vanilla-Werte verbatim; Arm-Pivot slim-abhängig). */
-    private void applyCrouchPose() {
-        this.pose.bodyXRot = 0.5F;
-        this.pose.bodyY = 3.2F;
-        this.pose.headY = 4.2F;
-        this.pose.armY = this.model.getArmPivotY() + 3.2F;
-        this.pose.rightArmXRot += 0.4F;
-        this.pose.leftArmXRot += 0.4F;
-        this.pose.legY = 12.2F;
-        this.pose.legZ = 4F;
+    /** Crouch-Pose with the existing vanilla targets blended over the eye-height transition. */
+    private void applyCrouchPose(float progress) {
+        this.pose.bodyXRot += (0.5F - this.pose.bodyXRot) * progress;
+        this.pose.bodyY += (3.2F - this.pose.bodyY) * progress;
+        this.pose.headY += (4.2F - this.pose.headY) * progress;
+        float crouchedArmY = this.model.getArmPivotY() + 3.2F;
+        this.pose.armY += (crouchedArmY - this.pose.armY) * progress;
+        this.pose.rightArmXRot += 0.4F * progress;
+        this.pose.leftArmXRot += 0.4F * progress;
+        this.pose.legY += (12.2F - this.pose.legY) * progress;
+        this.pose.legZ += (4F - this.pose.legZ) * progress;
     }
 
     /**

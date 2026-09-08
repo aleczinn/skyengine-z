@@ -35,6 +35,7 @@ import de.skyengine.game.world.tick.TickPriority;
  * {@code Dimension.updateComparatorOutputs} an.
  */
 public final class ComparatorBehavior implements BlockBehavior {
+    @Override public boolean handlesUse() { return true; }
 
     /**
      * Initialer Abgleich nach Chunk-Load. Neue Saves besitzen bereits OutputSignal; alte Saves

@@ -23,6 +23,7 @@ import de.skyengine.game.world.redstone.RedstonePower;
  * kein Door-spezifischer Code im Engine-Core.
  */
 public final class DoorBehavior implements BlockBehavior {
+    @Override public boolean handlesUse() { return true; }
 
     @Override
     public boolean reconcileRedstoneOnChunkBoundary() {

@@ -75,6 +75,8 @@ import de.skyengine.shared.world.ChunkColumnSnapshot;
 import de.skyengine.shared.entity.NetworkEntitySnapshot;
 import de.skyengine.shared.entity.NetworkEntityTypes;
 import de.skyengine.shared.entity.EntityEventTypes;
+import de.skyengine.shared.entity.NetworkPlayerMetadata;
+import de.skyengine.shared.entity.NetworkPlayerMetadataCodec;
 
 import java.io.File;
 import java.io.IOException;
@@ -927,17 +929,10 @@ public final class AuthoritativeWorldRuntime implements ServerWorldRuntime {
     }
 
     private byte[] playerMetadata(EntityPlayer player) {
-        try {
-            ByteArrayOutputStream bytes = new ByteArrayOutputStream(80);
-            try (DataOutputStream output = new DataOutputStream(bytes)) {
-                output.writeByte(player.getGamemode().ordinal());
-                output.writeByte(player.getSelectedSlot());
-                writeStack(output, toNetworkStack(player.getInventory().get(player.getSelectedSlot())));
-            }
-            return bytes.toByteArray();
-        } catch (IOException impossible) {
-            throw new IllegalStateException("Could not encode remote player metadata", impossible);
-        }
+        return NetworkPlayerMetadataCodec.encode(new NetworkPlayerMetadata(
+                toNetwork(player.getGamemode()), player.getSelectedSlot(),
+                movementFlags(player), player.onGround,
+                toNetworkStack(player.getInventory().get(player.getSelectedSlot()))));
     }
 
     @Override
@@ -1970,17 +1965,22 @@ public final class AuthoritativeWorldRuntime implements ServerWorldRuntime {
     }
 
     private PlayerStateSnapshot snapshot(EntityPlayer player, long tick, long sequence) {
-        int flags = 0;
-        if (player.isFlying()) flags |= PlayerMovementState.FLYING;
-        if (player.isNoClip()) flags |= PlayerMovementState.NO_CLIP;
-        if (player.isSprinting()) flags |= PlayerMovementState.SPRINTING;
-        if (player.isSneaking()) flags |= PlayerMovementState.SNEAKING;
+        int flags = movementFlags(player);
         Integer vehicleId = player.getVehicle() == null ? null : this.entityNetworkIds.get(player.getVehicle());
         return new PlayerStateSnapshot(tick, sequence, player.getDimensionId().toString(),
                 player.x, player.y, player.z, player.motionX, player.motionY, player.motionZ,
                 player.yaw, player.pitch, player.onGround, toNetwork(player.getGamemode()), flags,
                 player.getHealth(), player.getFoodLevel(), player.getSaturation(), player.getSelectedSlot(),
                 vehicleId == null ? 0 : vehicleId, player.getSpectatorFlySpeed());
+    }
+
+    private static int movementFlags(EntityPlayer player) {
+        int flags = 0;
+        if (player.isFlying()) flags |= PlayerMovementState.FLYING;
+        if (player.isNoClip()) flags |= PlayerMovementState.NO_CLIP;
+        if (player.isSprinting()) flags |= PlayerMovementState.SPRINTING;
+        if (player.isSneaking()) flags |= PlayerMovementState.SNEAKING;
+        return flags;
     }
 
     private static PlayerGameMode toNetwork(Gamemode mode) {

@@ -63,6 +63,12 @@ class ClientPredictionControllerTest {
         assertEquals(100, buffer.sample(1.5).x(), 1e-9);
     }
 
+    @Test
+    void renderFrameInterpolationUsesShortestYawArc() {
+        assertEquals(360, RemoteEntityInterpolationBuffer.interpolateAngle(350, 10, 0.5), 1e-6);
+        assertEquals(0, RemoteEntityInterpolationBuffer.interpolateAngle(10, 350, 0.5), 1e-6);
+    }
+
     private static NetworkEntitySnapshot entity(long revision, double x, float yaw) {
         return new NetworkEntitySnapshot(7, 1, "skyengine:overworld", revision,
                 x, 64, 0, 1, 0, 0, yaw, 0, new byte[] {1});

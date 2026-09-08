@@ -23,6 +23,7 @@ import de.skyengine.game.world.tick.TickPriority;
  * Codec-Toleranz save-kompatibel additiv).
  */
 public final class RepeaterBehavior implements BlockBehavior {
+    @Override public boolean handlesUse() { return true; }
 
     @Override
     public boolean reconcileRedstoneOnChunkBoundary() {

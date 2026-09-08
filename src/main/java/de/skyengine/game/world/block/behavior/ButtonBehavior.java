@@ -18,6 +18,7 @@ import de.skyengine.game.world.block.state.Properties;
  * Java-Code stehen. Deshalb datengetrieben statt hartkodiert.
  */
 public final class ButtonBehavior implements BlockBehavior {
+    @Override public boolean handlesUse() { return true; }
 
     private final int pressTicks;
 

@@ -11,6 +11,7 @@ import de.skyengine.game.world.redstone.RedstonePower;
 
 /** Vanilla-Zustandsübergänge eines hölzernen Zauntors. */
 public final class FenceGateBehavior implements BlockBehavior {
+    @Override public boolean handlesUse() { return true; }
 
     @Override
     public boolean reconcileRedstoneOnChunkBoundary() {

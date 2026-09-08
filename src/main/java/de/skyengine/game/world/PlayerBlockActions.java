@@ -34,6 +34,9 @@ public final class PlayerBlockActions {
         public static UseResult rejected() { return new UseResult(false, 0, 0, 0); }
     }
 
+    /** Pure placement result shared by client prediction and authoritative mutation. */
+    public record PlacementPlan(int x, int y, int z, BlockState state, boolean mergesSlab) { }
+
     public static float destroyProgress(EntityPlayer player, BlockState state) {
         float hardness = state.getBlock().getHardness();
         if (hardness < 0F) return 0F;
@@ -123,16 +126,39 @@ public final class PlayerBlockActions {
         }
         Block block = held.getItem().getPlacedBlock();
         if (block == null) return UseResult.rejected();
+        PlacementPlan plan = planPlacement(world, player, hitX, hitY, hitZ, face,
+                relativeHitX, relativeHitY, relativeHitZ, held);
+        if (plan == null) return UseResult.rejected();
+        boolean changed = plan.mergesSlab()
+                ? world.runPlayerBlockChange(() -> world.setBlock(
+                        plan.x(), plan.y(), plan.z(), plan.state().getId()))
+                : world.runPlayerBlockChange(() -> world.placeBlock(
+                        plan.x(), plan.y(), plan.z(), plan.state(), held));
+        if (!changed) {
+            return UseResult.rejected();
+        }
+        consumeHeld(player);
+        return new UseResult(true, plan.x(), plan.y(), plan.z());
+    }
+
+    public static PlacementPlan planPlacement(Dimension world, EntityPlayer player,
+                                                int hitX, int hitY, int hitZ, Direction face,
+                                                double relativeHitX, double relativeHitY,
+                                                double relativeHitZ, ItemStack held) {
+        if (held == null || held.isEmpty()) return null;
+        Block block = held.getItem().getPlacedBlock();
+        if (block == null) return null;
+        BlockState hitState = Blocks.getState(world.getBlock(hitX, hitY, hitZ));
 
         if (block.getDefaultState().getValues().containsKey(Properties.SLAB_TYPE)
                 && hitState.getBlock() == block) {
             SlabType type = hitState.get(Properties.SLAB_TYPE);
             boolean merge = (type == SlabType.BOTTOM && face == Direction.UP)
                     || (type == SlabType.TOP && face == Direction.DOWN);
-            if (merge && world.runPlayerBlockChange(() -> world.setBlock(hitX, hitY, hitZ,
-                    hitState.with(Properties.SLAB_TYPE, SlabType.DOUBLE).getId()))) {
-                consumeHeld(player);
-                return new UseResult(true, hitX, hitY, hitZ);
+            if (merge) {
+                BlockState merged = hitState.with(Properties.SLAB_TYPE, SlabType.DOUBLE);
+                return collides(world, player, merged, hitX, hitY, hitZ) ? null
+                        : new PlacementPlan(hitX, hitY, hitZ, merged, true);
             }
         }
 
@@ -140,17 +166,12 @@ public final class PlayerBlockActions {
         if (!hitState.getBlock().isReplaceable()) {
             x += face.offsetX(); y += face.offsetY(); z += face.offsetZ();
         }
-        if (y < 0 || y >= 512 || !isReplaceable(world.getBlock(x, y, z))) return UseResult.rejected();
+        if (y < 0 || y >= 512 || !isReplaceable(world.getBlock(x, y, z))) return null;
         BlockState place = block.getPlacementState(world, x, y, z, face.offsetX(), face.offsetY(),
                 face.offsetZ(), relativeHitX, relativeHitY, relativeHitZ, player.yaw, player.pitch,
                 player.isSecondaryUseActive());
-        if (place == null || collides(world, player, place, x, y, z)) return UseResult.rejected();
-        int targetX = x, targetY = y, targetZ = z;
-        if (!world.runPlayerBlockChange(() -> world.placeBlock(targetX, targetY, targetZ, place, held))) {
-            return UseResult.rejected();
-        }
-        consumeHeld(player);
-        return new UseResult(true, x, y, z);
+        if (place == null || collides(world, player, place, x, y, z)) return null;
+        return new PlacementPlan(x, y, z, place, false);
     }
 
     private static boolean isReplaceable(int stateId) {
@@ -162,7 +183,7 @@ public final class PlayerBlockActions {
                                     int x, int y, int z) {
         for (AABB local : state.getCollisionShape().boxes()) {
             AABB box = local.copy().move(x, y, z);
-            if (box.intersects(player.getBoundingBox()) || world.intersectsCollidableEntity(box)) return true;
+            if (box.intersects(player.getBoundingBox()) || world.intersectsPlacementEntity(box)) return true;
         }
         return false;
     }

@@ -387,6 +387,17 @@ public class Block {
     }
 
     /** Rechtsklick-Interaktion. Delegiert an die Behaviors; true = verbraucht. */
+    public boolean hasUseAction() {
+        if (this.config.blockEntityType() != null
+                || (this.config.craftingWidth() > 0 && this.config.craftingHeight() > 0)) {
+            return true;
+        }
+        for (BlockBehavior behavior : this.config.behaviors()) {
+            if (behavior.handlesUse()) return true;
+        }
+        return false;
+    }
+
     public boolean onUse(Dimension world, int x, int y, int z, BlockState state) {
         for (BlockBehavior behavior : this.config.behaviors()) {
             if (behavior.onUse(world, x, y, z, state)) return true;

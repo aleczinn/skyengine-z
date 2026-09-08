@@ -19,6 +19,7 @@ import de.skyengine.game.world.redstone.RedstonePower;
  * Spieler und sitzt am Boden bzw. an der Decke.
  */
 public final class TrapdoorBehavior implements BlockBehavior {
+    @Override public boolean handlesUse() { return true; }
 
     @Override
     public boolean reconcileRedstoneOnChunkBoundary() {

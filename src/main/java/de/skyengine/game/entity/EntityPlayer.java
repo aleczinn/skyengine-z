@@ -210,10 +210,7 @@ public class EntityPlayer extends Entity {
         /* Sprint nur bei Vorwärtsbewegung und nicht beim Sneaken */
         this.sprinting = this.sprintActive && forward > 0 && !this.sneaking;
 
-        /* Augenhöhe weich Richtung Ziel bewegen (~3 Ticks Übergang) */
-        this.lastEyeHeight = this.eyeHeight;
-        float targetEye = this.sneaking ? EYE_HEIGHT_SNEAKING : EYE_HEIGHT_STANDING;
-        this.eyeHeight += (targetEye - this.eyeHeight) * 0.5F;
+        this.tickPresentationState();
 
         if (this.sneaking) {
             forward *= SNEAK_FACTOR;
@@ -411,9 +408,15 @@ public class EntityPlayer extends Entity {
         /* Kantenschutz: beim Sneaken am Boden die Bewegung so kürzen,
            dass die BoundingBox nie komplett über dem Abgrund hängt */
         if (this.sneaking && this.onGround && dy <= 0) {
+            double requestedX = dx;
+            double requestedZ = dz;
             double[] adjusted = this.backOffFromEdge(world, dx, dz);
             dx = adjusted[0];
             dz = adjusted[1];
+            /* Do not retain momentum which the ledge guard just rejected. Otherwise releasing
+               sneak on the following tick applies that hidden velocity and drops the player. */
+            if (Double.compare(dx, requestedX) != 0) this.motionX = 0;
+            if (Double.compare(dz, requestedZ) != 0) this.motionZ = 0;
         }
 
         /* Der Tempo-Faktor (Seelensand/Honig) steckt in Entity.move — dort, wo MC ihn auch
@@ -687,8 +690,18 @@ public class EntityPlayer extends Entity {
         this.sneakActive = sneaking;
         this.lastSprintDown = sprinting;
         this.lastSneakDown = sneaking;
-        this.eyeHeight = this.sneaking ? EYE_HEIGHT_SNEAKING : EYE_HEIGHT_STANDING;
+    }
+
+    /**
+     * Advances client-visible player state once per simulation tick.  The normal gameplay update
+     * calls this itself; replicated presentation players call it after their final predicted or
+     * interpolated state has been installed.  Network reconciliation must never reset these
+     * values, otherwise every snapshot turns the smooth crouch transition into a hard camera snap.
+     */
+    public void tickPresentationState() {
         this.lastEyeHeight = this.eyeHeight;
+        float targetEye = this.sneaking ? EYE_HEIGHT_SNEAKING : EYE_HEIGHT_STANDING;
+        this.eyeHeight += (targetEye - this.eyeHeight) * 0.5F;
     }
 
     public boolean isSprinting() {
@@ -841,5 +854,11 @@ public class EntityPlayer extends Entity {
      */
     public float getEyeHeight(float partialTick) {
         return this.lastEyeHeight + (this.eyeHeight - this.lastEyeHeight) * partialTick;
+    }
+
+    /** Interpolated 0..1 crouch blend shared by camera and third-person rendering. */
+    public float getCrouchProgress(float partialTick) {
+        float range = EYE_HEIGHT_STANDING - EYE_HEIGHT_SNEAKING;
+        return Math.clamp((EYE_HEIGHT_STANDING - this.getEyeHeight(partialTick)) / range, 0F, 1F);
     }
 }

@@ -17,6 +17,7 @@ import de.skyengine.game.world.redstone.RedstoneWireNetwork;
  * Staub-zu-Staub-Signal läuft, verhindert der ignoreWire-Pfad in {@code RedstonePower}.
  */
 public final class RedstoneWireBehavior implements BlockBehavior {
+    @Override public boolean handlesUse() { return true; }
 
     @Override
     public boolean reconcileRedstoneOnChunkBoundary() {

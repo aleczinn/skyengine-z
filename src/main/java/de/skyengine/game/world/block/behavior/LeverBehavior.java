@@ -14,6 +14,7 @@ import de.skyengine.game.world.block.state.Properties;
  * in den Träger (dessen Nachbarn kriegen den zweiten Ring).
  */
 public final class LeverBehavior implements BlockBehavior {
+    @Override public boolean handlesUse() { return true; }
 
     @Override
     public BlockState onPlace(PlacementContext ctx, BlockState state) {

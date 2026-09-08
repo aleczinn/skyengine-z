@@ -53,7 +53,7 @@ public final class RemoteEntityInterpolationBuffer {
                 lerp(a.velocityX(), b.velocityX(), alpha),
                 lerp(a.velocityY(), b.velocityY(), alpha),
                 lerp(a.velocityZ(), b.velocityZ(), alpha),
-                lerpAngle(a.yaw(), b.yaw(), alpha),
+                interpolateAngle(a.yaw(), b.yaw(), alpha),
                 (float) lerp(a.pitch(), b.pitch(), alpha),
                 alpha < 0.5 ? a.metadata() : b.metadata());
     }
@@ -67,7 +67,7 @@ public final class RemoteEntityInterpolationBuffer {
 
     private static double lerp(double a, double b, double alpha) { return a + (b - a) * alpha; }
 
-    private static float lerpAngle(float a, float b, double alpha) {
+    public static float interpolateAngle(float a, float b, double alpha) {
         float delta = (b - a) % 360;
         if (delta > 180) delta -= 360;
         if (delta < -180) delta += 360;

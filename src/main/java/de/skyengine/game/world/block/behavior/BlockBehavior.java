@@ -20,6 +20,11 @@ import java.util.Random;
  */
 public interface BlockBehavior {
 
+    /** Pure capability query used before a client predicts a placement on right click. */
+    default boolean handlesUse() {
+        return false;
+    }
+
     /** Capability of the block's item form, backed by the supplied stack. */
     default <C> Optional<C> getItemCapability(Capability<C> capability, ItemStack stack) {
         return Optional.empty();

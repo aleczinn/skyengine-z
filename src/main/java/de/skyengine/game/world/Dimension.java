@@ -162,6 +162,8 @@ public class Dimension implements IInitializable, IDisposable {
     private EntityPlayer player;
     /** All authoritative players currently ticking this dimension. Local play contains one. */
     private List<EntityPlayer> activePlayers = List.of();
+    /** Client-side replicated entities used by the same placement collision rule as the server. */
+    private List<Entity> replicatedPlacementEntities = List.of();
 
     /** Spielzeit in Ticks (20 TPS), bei jedem update() erhöht - Basis für geplante Ticks. */
     private long gameTime;
@@ -378,6 +380,15 @@ public class Dimension implements IInitializable, IDisposable {
         }
         this.player = player;
         this.activePlayers = player == null ? List.of() : List.of(player);
+    }
+
+    /** Supplies immutable-per-tick replicated entity views for placement collision prediction. */
+    public void setReplicatedPlacementEntities(List<? extends Entity> entities) {
+        if (!this.replicatedClientView) {
+            throw new IllegalStateException("Not a replicated client dimension");
+        }
+        this.replicatedPlacementEntities = entities == null || entities.isEmpty()
+                ? List.of() : List.copyOf(entities);
     }
 
     public String getName() {
@@ -1335,6 +1346,25 @@ public class Dimension implements IInitializable, IDisposable {
                         return true;
                     }
                 }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Placement occupancy includes every player even though players do not participate in the
+     * generic entity collision solver. Replicated clients feed their remote entity mirrors into
+     * the same query, so prediction and authority reject the same obvious overlaps.
+     */
+    public boolean intersectsPlacementEntity(AABB box) {
+        for (EntityPlayer active : this.activePlayers) {
+            if (!active.isRemoved() && active.getBoundingBox().intersects(box)) return true;
+        }
+        if (this.intersectsCollidableEntity(box)) return true;
+        for (Entity entity : this.replicatedPlacementEntities) {
+            if (!entity.isRemoved() && (entity instanceof EntityPlayer || entity.isCollidable())
+                    && entity.getBoundingBox().intersects(box)) {
+                return true;
             }
         }
         return false;

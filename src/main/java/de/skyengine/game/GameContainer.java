@@ -160,8 +160,11 @@ import de.skyengine.shared.player.PlayerInputFrame;
 import de.skyengine.shared.gameplay.PlayerAbilityAction;
 import de.skyengine.shared.player.PlayerStateSnapshot;
 import de.skyengine.shared.player.PlayerMovementState;
+import de.skyengine.shared.player.OfflinePlayerName;
 import de.skyengine.shared.player.PlayerGameMode;
 import de.skyengine.shared.entity.NetworkEntityTypes;
+import de.skyengine.shared.entity.NetworkPlayerMetadata;
+import de.skyengine.shared.entity.NetworkPlayerMetadataCodec;
 import de.skyengine.shared.entity.NetworkEntitySnapshot;
 import de.skyengine.shared.gameplay.NetworkItemStack;
 import de.skyengine.shared.network.packets.CorePackets;
@@ -222,6 +225,9 @@ public class GameContainer implements IResizeable, IDisposable {
         long revision = -1;
         final RemoteEntityInterpolationBuffer interpolation = new RemoteEntityInterpolationBuffer();
         double renderServerTick = Double.NaN;
+        float previousLookYaw, currentLookYaw;
+        float previousLookPitch, currentLookPitch;
+        boolean lookInitialized;
 
         RemotePlayerVisual(java.util.UUID identity) { this.player = new EntityPlayer(identity); }
     }
@@ -468,7 +474,7 @@ public class GameContainer implements IResizeable, IDisposable {
             this.integratedServer = new IntegratedServerHost(config,
                     new AuthoritativeWorldRuntime(config, worldDirectory, this.integratedWorkers));
             this.multiplayer.connect(this.integratedServer.clientConnection(),
-                    System.getProperty("user.name", "Player"), identity);
+                    OfflinePlayerName.fromUuid(identity), identity);
         } catch (IOException | RuntimeException failure) {
             this.logger.error("Integrierter Server konnte nicht gestartet werden", failure);
             this.closeIntegratedServer();
@@ -496,7 +502,7 @@ public class GameContainer implements IResizeable, IDisposable {
         this.closeIntegratedServer();
         this.integratedSave = null;
         this.closeRemoteWorldView();
-        this.multiplayer.connect(address, System.getProperty("user.name", "Player"));
+        this.multiplayer.connect(address, OfflinePlayerName.fromUuid(this.multiplayer.launchIdentity()));
     }
 
     public void disconnectFromServer() {
@@ -566,6 +572,16 @@ public class GameContainer implements IResizeable, IDisposable {
         this.syncRemoteEntityVisuals();
         if (this.remotePlayer != null) {
             if (this.rightClickDelay > 0) this.rightClickDelay--;
+        }
+        /* Match the direct gameplay order: first movement prediction and input actions, then
+           sample the final presentation entity.  Sampling before prediction made x == lastX on
+           most authoritative ticks and suppressed limb swing, body yaw and first-person bobbing. */
+        if (phase == ClientMultiplayerConnection.Phase.PLAY && this.remoteWorldView != null
+                && this.multiplayer.session() != null) {
+            this.sendRemoteInput(input);
+        }
+        if (this.remotePlayer != null) {
+            this.remotePlayer.tickPresentationState();
             this.animState.tickHeldItem(this.remotePlayer.getInventory().get(this.remotePlayer.getSelectedSlot()));
             this.animState.tick(this.remotePlayer);
             this.updateRemotePresentation(input);
@@ -587,10 +603,6 @@ public class GameContainer implements IResizeable, IDisposable {
                 this.guiManager.open(new GuiDisconnected(new GuiMainMenu(),
                         I18n.tr("multiplayer.connection_failed"), message));
             }
-        }
-        if (phase == ClientMultiplayerConnection.Phase.PLAY && this.remoteWorldView != null
-                && this.multiplayer.session() != null) {
-            this.sendRemoteInput(input);
         }
     }
 
@@ -836,6 +848,20 @@ public class GameContainer implements IResizeable, IDisposable {
         int hitX = quantizeHit(actionHit.hitX() - targetX);
         int hitY = quantizeHit(actionHit.hitY() - targetY);
         int hitZ = quantizeHit(actionHit.hitZ() - targetZ);
+        de.skyengine.game.world.PlayerBlockActions.PlacementPlan placementPlan = null;
+        boolean predictPlacement = false;
+        if (action == de.skyengine.shared.gameplay.BlockActionRequest.Action.PLACE
+                && !held.isEmpty() && held.getItem().getPlacedBlock() != null) {
+            placementPlan = de.skyengine.game.world.PlayerBlockActions.planPlacement(
+                    this.remoteWorldView.physicsDimension(), this.remotePlayer,
+                    actionHit.x(), actionHit.y(), actionHit.z(), face,
+                    hitX / 255.0, hitY / 255.0, hitZ / 255.0, held);
+            BlockState clicked = Blocks.getState(actionHit.block());
+            boolean mayUseClickedBlock = !this.remotePlayer.isSecondaryUseActive()
+                    && clicked.getBlock().hasUseAction();
+            if (placementPlan == null && !mayUseClickedBlock) return false;
+            predictPlacement = placementPlan != null && !mayUseClickedBlock;
+        }
         long actionId = ++this.remoteActionSequence;
         int expectedTargetState = (action == de.skyengine.shared.gameplay.BlockActionRequest.Action.PLACE
                 || action == de.skyengine.shared.gameplay.BlockActionRequest.Action.INTERACT)
@@ -871,18 +897,13 @@ public class GameContainer implements IResizeable, IDisposable {
                     actionHit.x() + 0.5, actionHit.y() + 0.5, actionHit.z() + 0.5);
             rememberLocallyPresentedBlockAction(actionId);
         } else if (action == de.skyengine.shared.gameplay.BlockActionRequest.Action.PLACE
-                && held.getItem() != null && held.getItem().getPlacedBlock() != null) {
-            BlockState place = held.getItem().getPlacedBlock().getPlacementState(
-                    this.remoteWorldView.physicsDimension(), targetX, targetY, targetZ,
-                    face.offsetX(), face.offsetY(), face.offsetZ(), hitX / 255.0,
-                    hitY / 255.0, hitZ / 255.0, this.remotePlayer.yaw, this.remotePlayer.pitch,
-                    this.remotePlayer.isSecondaryUseActive());
-            if (place != null) {
-                this.predictRemoteBlock(actionId, targetX, targetY, targetZ, place.getId());
-                this.soundManager.playPlace(place.getBlock().getSoundGroup(),
-                        targetX + 0.5, targetY + 0.5, targetZ + 0.5);
-                rememberLocallyPresentedBlockAction(actionId);
-            }
+                && predictPlacement) {
+            BlockState place = placementPlan.state();
+            this.predictRemoteBlock(actionId, placementPlan.x(), placementPlan.y(),
+                    placementPlan.z(), place.getId());
+            this.soundManager.playPlace(place.getBlock().getSoundGroup(),
+                    placementPlan.x() + 0.5, placementPlan.y() + 0.5, placementPlan.z() + 0.5);
+            rememberLocallyPresentedBlockAction(actionId);
         }
         return true;
     }
@@ -1329,17 +1350,34 @@ public class GameContainer implements IResizeable, IDisposable {
             player.motionX = rendered.velocityX();
             player.motionY = rendered.velocityY();
             player.motionZ = rendered.velocityZ();
+            if (!visual.lookInitialized || snapTransform) {
+                visual.previousLookYaw = visual.currentLookYaw = rendered.yaw();
+                visual.previousLookPitch = visual.currentLookPitch = rendered.pitch();
+                visual.lookInitialized = true;
+            } else {
+                visual.previousLookYaw = visual.currentLookYaw;
+                visual.previousLookPitch = visual.currentLookPitch;
+                visual.currentLookYaw = rendered.yaw();
+                visual.currentLookPitch = rendered.pitch();
+            }
             player.yaw = rendered.yaw();
             player.pitch = rendered.pitch();
-            try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(rendered.metadata()))) {
-                int gameMode = input.readUnsignedByte();
-                int selectedSlot = input.readUnsignedByte();
-                if (gameMode < Gamemode.values().length) player.setGamemode(Gamemode.values()[gameMode]);
-                if (selectedSlot < 9) player.setSelectedSlot(selectedSlot);
-                visual.held = this.decodeRemoteItem(readNetworkStack(input));
-            } catch (IOException | IllegalArgumentException invalid) {
+            try {
+                NetworkPlayerMetadata metadata = NetworkPlayerMetadataCodec.decode(rendered.metadata());
+                player.setGamemode(Gamemode.valueOf(metadata.gameMode().name()));
+                player.setSelectedSlot(metadata.selectedSlot());
+                player.onGround = metadata.grounded();
+                int movement = metadata.movementState();
+                player.restoreNetworkMovementState(
+                        (movement & PlayerMovementState.FLYING) != 0,
+                        (movement & PlayerMovementState.NO_CLIP) != 0,
+                        (movement & PlayerMovementState.SPRINTING) != 0,
+                        (movement & PlayerMovementState.SNEAKING) != 0);
+                visual.held = this.decodeRemoteItem(metadata.heldItem());
+            } catch (IllegalArgumentException invalid) {
                 visual.held = ItemStack.EMPTY;
             }
+            player.tickPresentationState();
             visual.animation.tickHeldItem(visual.held);
             visual.animation.tick(player);
         }
@@ -1350,6 +1388,7 @@ public class GameContainer implements IResizeable, IDisposable {
         this.remoteRenderedEntities.clear();
         if (this.multiplayer.session() == null || this.multiplayer.playerState() == null) {
             this.remoteEntityVisuals.clear();
+            this.updateRemotePlacementEntities();
             return;
         }
         java.util.Set<Integer> present = new java.util.HashSet<>();
@@ -1384,6 +1423,16 @@ public class GameContainer implements IResizeable, IDisposable {
             this.remoteRenderedEntities.add(visual.entity);
         }
         this.remoteEntityVisuals.keySet().removeIf(id -> !present.contains(id));
+        this.updateRemotePlacementEntities();
+    }
+
+    private void updateRemotePlacementEntities() {
+        if (this.remoteWorldView == null) return;
+        java.util.ArrayList<Entity> entities = new java.util.ArrayList<>(
+                this.remotePlayerVisuals.size() + this.remoteRenderedEntities.size());
+        for (RemotePlayerVisual visual : this.remotePlayerVisuals.values()) entities.add(visual.player);
+        entities.addAll(this.remoteRenderedEntities);
+        this.remoteWorldView.setPlacementEntities(entities);
     }
 
     private Entity createRemoteEntity(NetworkEntitySnapshot snapshot) {
@@ -2781,8 +2830,12 @@ public class GameContainer implements IResizeable, IDisposable {
             int z = (int) Math.floor(player.z);
             float light = ChunkRenderer.lightFactor(world.getRenderedSkyLight(x, y, z),
                     world.getBlockLight(x, y, z), world.getEnvironment().ambientLight());
+            float renderYaw = RemoteEntityInterpolationBuffer.interpolateAngle(
+                    visual.previousLookYaw, visual.currentLookYaw, partialTick);
+            float renderPitch = visual.previousLookPitch
+                    + (visual.currentLookPitch - visual.previousLookPitch) * partialTick;
             this.playerRenderer.renderThirdPerson(player, visual.animation, this.camera, partialTick,
-                    this.heldItemMeshes, visual.held, light);
+                    this.heldItemMeshes, visual.held, light, renderYaw, renderPitch);
         }
     }
 

@@ -172,6 +172,9 @@ public final class RemoteWorldView implements AutoCloseable {
                     (int) Math.floor(player.z) >> ChunkSection.SHIFT);
         }
     }
+    public void setPlacementEntities(List<? extends Entity> entities) {
+        this.physicsDimension.setReplicatedPlacementEntities(entities);
+    }
     public void setAuthoritativeChunkListener(java.util.function.BiConsumer<Integer, Integer> listener) {
         this.replicatedChunks.setAuthoritativeUpdateListener(listener);
     }
